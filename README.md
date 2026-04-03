@@ -10,17 +10,17 @@
 </p>
 
 <p align="center">
-  <a href="#quickstart">Quickstart</a> ·
+  <a href="SETUP.md">Quickstart</a> ·
   <a href="#how-it-works">How it Works</a> ·
   <a href="#skills">Skills</a> ·
   <a href="#build-a-skill">Build a Skill</a> ·
-  <a href="https://discord.gg/cluclaw">Discord</a> ·
+  <a href="https://github.com/Vi-Shock/cluclaw/issues">Issues</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/stars/cluclaw/cluclaw?style=social" />
-  <img src="https://img.shields.io/github/license/cluclaw/cluclaw" />
+  <img src="https://img.shields.io/github/stars/Vi-Shock/cluclaw?style=social" />
+  <img src="https://img.shields.io/github/license/Vi-Shock/cluclaw" />
   <img src="https://img.shields.io/badge/platforms-WhatsApp%20%7C%20Telegram-25D366" />
   <img src="https://img.shields.io/badge/LLM-any%20provider-blueviolet" />
 </p>
@@ -51,44 +51,30 @@ Every group chat is full of decisions, expenses, plans, and action items — bur
 👤 Vishak: splits
 
 🤖 CluClaw:
-┌─────────────────────────────────┐
-│  🧾 Goa Trip — 4 expenses       │
-│  Total: ₹23,600                 │
-│                                 │
-│  Settlements:                   │
-│  → Ravi owes Vishak ₹3,100     │
-│  → Priya owes Vishak ₹3,400    │
-│  → Deepa owes Vishak ₹2,950    │
-│                                 │
-│  Type "details" for breakdown   │
-└─────────────────────────────────┘
+💰 Settlements
+
+→ Ravi owes Vishak ₹3,100
+→ Priya owes Vishak ₹3,400
+→ Deepa owes Vishak ₹2,950
+
+Type details to see all expenses.
 ```
 
 **No one opened Splitwise. No one manually entered an expense. CluClaw just knew.**
 
 ---
 
-<a id="quickstart"></a>
 ## Quickstart
 
 ```bash
-# Install
-npx cluclaw@latest init
-
-# Follow the setup wizard:
-# 1. Choose your LLM provider (OpenAI, Anthropic, Groq, Ollama, etc.)
-# 2. Connect WhatsApp (scan QR) and/or Telegram (paste bot token)
-# 3. Add CluClaw to a group chat
-# 4. Start talking. That's it.
-```
-
-Or with Docker:
-```bash
-git clone https://github.com/cluclaw/cluclaw.git
+git clone https://github.com/Vi-Shock/cluclaw.git
 cd cluclaw
-cp .env.example .env      # configure your LLM provider
-docker compose up
+npm install
+cp .env.example .env      # configure your LLM provider + Telegram bot token
+npm run dev
 ```
+
+**→ Full step-by-step instructions: [SETUP.md](SETUP.md)**
 
 **Requirements:** Node.js 22+ · Any LLM API key (or local Ollama)
 
@@ -103,6 +89,11 @@ Group Chat Message
 ┌─────────────────────────────┐
 │  Channel Adapter             │  Normalizes WhatsApp/Telegram
 │  (Baileys / grammY)          │  into unified GroupMessage
+└──────────┬──────────────────┘
+           ↓
+┌─────────────────────────────┐
+│  Media Pre-processing        │  Voice note → STT → text
+│  (src/core/agent.ts)         │  Receipt photo → Vision → text
 └──────────┬──────────────────┘
            ↓
 ┌─────────────────────────────┐
@@ -134,7 +125,14 @@ Group Chat Message
 ### Two-Stage Parsing (keeps costs near-zero)
 
 1. **Fast filter** — Regex checks for `₹`, `$`, `paid`, `spent`, numbers. 90%+ of messages (memes, jokes, "haha") are skipped instantly. No LLM cost.
-2. **LLM extraction** — Only triggered for likely matches. Any provider works: GPT-4o-mini, Claude, Groq, Ollama. Returns structured JSON.
+2. **LLM extraction** — Only triggered for likely matches. Any provider works: GPT-4o-mini, Claude, Groq, Ollama. Returns structured JSON via Zod schema.
+
+### Multi-Language Support
+
+The expense parser handles English, Hindi, and Hinglish out of the box:
+- `"Paid ₹2400 for the Airbnb"` ✓
+- `"Maine 200 diye petrol ke liye"` ✓ *(I paid 200 for petrol)*
+- `"sabne petrol dala, total 450 hua"` ✓ *(Everyone put in petrol, total 450)*
 
 ---
 
@@ -145,7 +143,7 @@ CluClaw is a **platform**, not just an expense tracker. Skills are modular, comm
 
 | Skill | Status | What it does |
 |---|---|---|
-| 💰 **Expense Split** | ✅ Shipped | Passively tracks who paid what. Calculates settlements. |
+| 💰 **Expense Split** | ✅ Shipped | Passively tracks who paid what. Calculates & simplifies settlements. |
 | ✅ **Action Tracker** | 🔜 Next | Extracts commitments from chat. Reminds before deadlines. |
 | 📊 **Poll / Vote** | 🔜 Planned | Creates polls from conversation. Tallies votes. |
 | 🗺️ **Trip Planner** | 🔜 Planned | Builds itinerary from scattered messages, links, photos. |
@@ -154,7 +152,7 @@ CluClaw is a **platform**, not just an expense tracker. Skills are modular, comm
 | 🔖 **Content Curator** | 🔜 Planned | Saves and organizes all links/files shared in the group. |
 | 📝 **Standup Bot** | 🔜 Planned | Scheduled check-ins. Collects updates. Posts daily digest. |
 
-**Want a skill that doesn't exist?** [Build one](#build-a-skill) or [request it](https://github.com/cluclaw/cluclaw/issues/new).
+**Want a skill that doesn't exist?** [Build one](#build-a-skill) or [request it](https://github.com/Vi-Shock/cluclaw/issues/new).
 
 ---
 
@@ -167,7 +165,7 @@ CluClaw does **not** lock you into any AI provider. Configure any LLM:
 | **Groq** | Llama 3.3 70B | Free tier available | `LLM_PROVIDER=groq` |
 | **Ollama** | Any local model | Free (runs on your hardware) | `LLM_PROVIDER=ollama` |
 | **OpenAI** | GPT-4o-mini | ~$0.15/1M tokens | `LLM_PROVIDER=openai` |
-| **Anthropic** | Claude Sonnet | ~$3/1M tokens | `LLM_PROVIDER=anthropic` |
+| **Anthropic** | Claude Haiku | ~$0.80/1M tokens | `LLM_PROVIDER=anthropic` |
 | **Google** | Gemini Flash | Free tier available | `LLM_PROVIDER=google` |
 
 ```env
@@ -183,7 +181,7 @@ LLM_API_KEY=gsk_...
 - **Self-hosted** — CluClaw runs on YOUR machine. Not our servers.
 - **No cloud dependency** — Use Ollama for fully local, offline operation.
 - **Per-group isolation** — Each group gets its own SQLite database. Groups can't see each other's data.
-- **You own your data** — Plain SQLite files. Export, delete, or migrate anytime.
+- **You own your data** — Plain SQLite files in `./data/`. Export, delete, or migrate anytime.
 - **Open source** — Audit every line. MIT licensed.
 
 ---
@@ -194,20 +192,20 @@ LLM_API_KEY=gsk_...
 Skills are simple TypeScript modules. Here's the skeleton:
 
 ```typescript
-// skills/my-skill/index.ts
-import type { Skill, GroupMessage, GroupContext } from '../../types';
+// src/skills/my-skill/index.ts
+import type { Skill, GroupMessage, GroupContext, SkillResponse } from '../../types.js';
 
 export default {
   name: 'my-skill',
   description: 'Does something useful for the group',
 
-  // Fast check — regex only, no LLM. Called for EVERY message.
+  // Fast check — regex only, no LLM. Called for EVERY message. Must be < 1ms.
   shouldActivate(message: GroupMessage): boolean {
     return /keyword|pattern/i.test(message.content.text ?? '');
   },
 
   // Process the message. Call LLM here if needed.
-  async handle(message: GroupMessage, context: GroupContext) {
+  async handle(message: GroupMessage, context: GroupContext): Promise<SkillResponse | null> {
     const data = await context.llm.extractStructured(
       `Extract X from: "${message.content.text}"`,
       myZodSchema
@@ -218,49 +216,98 @@ export default {
 
   // Explicit commands users can type
   commands: {
-    'my-command': async (args, context) => {
+    'my-command': async (args: string, context: GroupContext) => {
       return { text: 'Here is what I found...' };
     }
   }
 } satisfies Skill;
 ```
 
-Every skill gets:
-- `context.llm` — Provider-agnostic LLM calls
-- `context.members` — Who's in the group
-- `context.history` — Recent messages
-- `context.getSkillState() / setSkillState()` — Persistent state
+Every skill gets access to:
+- `context.llm` — Provider-agnostic LLM calls (`extractStructured`, `generateText`)
+- `context.members` — Who's in the group (with aliases)
+- `context.history` — Last 50 messages
+- `context.getSkillState() / setSkillState()` — Persistent JSON state per group
 - `context.scheduler` — Schedule future messages (reminders, recurring tasks)
-- `context.searchHistory(query)` — Full-text search over past messages
+- `context.searchHistory(query)` — Full-text search over past messages (SQLite FTS5)
 
-```bash
-# Install a community skill
-cluclaw skill install @cluclaw/action-tracker
+Each skill directory also needs a **`SKILL.md`** with:
+- Description and activation signals
+- LLM system prompt template
+- Few-shot examples for the LLM
 
-# List installed skills
-cluclaw skill list
+See [`src/skills/expense-split/`](src/skills/expense-split/) for a complete reference implementation.
 
-# Create a new skill from template
-cluclaw skill create my-awesome-skill
-```
+---
+
+## Commands Reference
+
+| Command | Aliases | Description |
+|---|---|---|
+| `splits` | `balances`, `settle up`, `who owes what` | Show simplified settlements |
+| `details` | `expenses`, `detail` | List all recorded expenses |
+| `remove last` | `undo` | Delete the most recent expense |
+| `settle <name> <amount>` | — | Record a payment between members |
+| `help` | — | Show available commands |
+
+All commands work with or without a `/` prefix (`splits` or `/splits`).
 
 ---
 
 ## Roadmap
 
 - [x] Core agent with skill system
-- [x] WhatsApp support (Baileys)
 - [x] Telegram support (grammY)
-- [x] LLM-agnostic provider system
-- [x] Expense Split skill
-- [ ] Voice note support (STT)
-- [ ] Receipt photo scanning (Vision)
+- [x] WhatsApp support (Baileys)
+- [x] LLM-agnostic provider system (Vercel AI SDK)
+- [x] Expense Split skill (with Hinglish support + debt simplification)
+- [x] Voice note support (STT — Groq / OpenAI / local whisper.cpp)
+- [x] Receipt photo scanning (Vision — any vision-capable model)
+- [x] SQLite FTS5 message history search
+- [x] Scheduler (one-shot + recurring cron tasks)
 - [ ] Skill registry / marketplace
 - [ ] Action Tracker skill
 - [ ] Poll / Vote skill
 - [ ] Web dashboard
-- [ ] Multi-currency support
+- [ ] Multi-currency conversion (rates API)
 - [ ] UPI settlement links
+
+---
+
+## Project Structure
+
+```
+src/
+├── core/
+│   ├── agent.ts          # Main loop: receive → pre-process → route → respond
+│   ├── config.ts         # Zod-validated env var loading
+│   ├── llm.ts            # Provider-agnostic LLM wrapper (Vercel AI SDK)
+│   ├── logger.ts         # Minimal logger with LOG_LEVEL + ANSI colors
+│   ├── message-bus.ts    # WhatsApp/Telegram → GroupMessage normalization
+│   ├── scheduler.ts      # SQLite task queue (one-shot + cron recurrence)
+│   └── skill-loader.ts   # Dynamic skill discovery from src/skills/
+├── channels/
+│   ├── telegram.ts       # grammY: connect, receive, send, media download
+│   └── whatsapp.ts       # Baileys: QR auth, connect, receive, send, rate limit
+├── skills/
+│   └── expense-split/
+│       ├── SKILL.md      # Prompt templates + 10 few-shot examples
+│       ├── index.ts      # Skill interface implementation
+│       ├── parser.ts     # Fast regex filter + LLM extraction + name resolution
+│       ├── ledger.ts     # SQLite CRUD + balance calc + debt simplification
+│       ├── renderer.ts   # Message formatters (splits, details, help, welcome)
+│       └── schemas.ts    # Zod schemas for LLM output + DB rows
+├── memory/
+│   ├── store.ts          # SQLite connection pool + migrations
+│   ├── group-context.ts  # GroupContext factory
+│   └── search.ts         # FTS5 full-text search over message history
+├── utils/
+│   ├── formatter.ts      # Platform-aware markup (WhatsApp vs Telegram)
+│   ├── stt.ts            # Voice → text (Groq / OpenAI / local whisper.cpp)
+│   ├── vision.ts         # Image → structured data (receipt parsing)
+│   └── url.ts            # URL metadata fetcher (title, description, OG tags)
+└── index.ts              # Entry point: load → register channels → start → shutdown
+```
 
 ---
 
@@ -270,7 +317,7 @@ cluclaw skill create my-awesome-skill
 
 **vs ChatGPT/Claude** — General AI is 1-to-1. It can't observe a group, can't track state across messages from multiple people, and forgets everything when you close the tab. CluClaw is group-native with persistent memory.
 
-**vs OpenClaw** — OpenClaw is a personal AI agent (1-to-1). CluClaw is a group AI agent (many-to-one). Different problem, complementary tools. CluClaw can even run as an OpenClaw skill.
+**vs OpenClaw** — OpenClaw is a personal AI agent (1-to-1). CluClaw is a group AI agent (many-to-one). Different problem, complementary tools.
 
 **vs WhatsApp bots** — Most bots need @mentions and structured commands. CluClaw understands natural, messy, unstructured human conversation. "Beers on me 🍺 ₹900" just works.
 
@@ -280,33 +327,23 @@ cluclaw skill create my-awesome-skill
 
 CluClaw is open source and community-driven. We welcome:
 
-- **New skills** — Build something useful for groups. [Skill development guide](docs/SKILLS.md)
-- **Channel adapters** — Discord, Slack, Signal, Matrix. [Channel guide](docs/CHANNELS.md)
-- **Bug reports** — [Open an issue](https://github.com/cluclaw/cluclaw/issues)
+- **New skills** — Build something useful for groups
+- **Channel adapters** — Discord, Slack, Signal, Matrix
+- **Bug reports** — [Open an issue](https://github.com/Vi-Shock/cluclaw/issues)
 - **Documentation** — Help others get started
 
 ```bash
-git clone https://github.com/cluclaw/cluclaw.git
+git clone https://github.com/Vi-Shock/cluclaw.git
 cd cluclaw
 npm install
 cp .env.example .env
 npm run dev
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
-
-## Star History
-
-If CluClaw is useful, **star the repo** — it helps others discover it.
-
-[![Star History Chart](https://api.star-history.com/svg?repos=cluclaw/cluclaw&type=Date)](https://star-history.com/#cluclaw/cluclaw&Date)
-
 ---
 
 <p align="center">
   <strong>CluClaw</strong> — finds the clues, for the kulu. 🕵️‍♂️
   <br/>
-  <sub>Built with ❤️ by <a href="https://github.com/vishak">Vishak</a> and the community</sub>
+  <sub>Built with ❤️ by <a href="https://github.com/Vi-Shock">Vishak</a> and the community</sub>
 </p>
