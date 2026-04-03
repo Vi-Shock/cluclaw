@@ -294,16 +294,30 @@ All four `@ai-sdk/*` provider packages are bundled. Users switch between them vi
 
 ## Current Development Phase
 
-**Phase: MVP Complete — Next: Second Skill**
+**Phase: Expense-Split Feature Complete — Next: Second Skill**
 
-All 7 MVP phases are shipped:
+All 7 MVP phases are shipped, plus a full post-MVP feature pass on the expense-split skill:
 1. ✅ Core infrastructure (config, llm.ts, message-bus, skill-loader, scheduler)
 2. ✅ Telegram channel (grammY, privacy mode OFF, media download, group join detection)
-3. ✅ Expense-split skill (parser + ledger + renderer + Hinglish support + debt simplification)
+3. ✅ Expense-split skill — see full capability list below
 4. ✅ WhatsApp channel (Baileys, QR auth, rate limiting, exponential backoff reconnection)
 5. ✅ Platform-aware formatter (WhatsApp vs Telegram markup differences)
 6. ✅ Voice note support (STT — Groq / OpenAI / local whisper.cpp)
 7. ✅ Receipt photo support (Vision — any vision-capable model)
+
+**Expense-Split Skill — Shipped Capabilities:**
+- Natural language extraction (English, Hindi, Hinglish) + two-stage regex→LLM pipeline
+- Debt simplification algorithm (minimises transaction count)
+- Auto-registration of unknown members as placeholders (expenses never lost)
+- Expense targeting by `#N` position (DESC order — newest = #1, matches `details` display)
+- `resolveExpenseTarget()` — position → description fuzzy match → most recent fallback
+- Dual timestamps: `expense_date` (when money changed hands) vs `created_at` (when recorded)
+- LLM resolves relative dates ("yesterday", "last Tuesday") into YYYY-MM-DD
+- Append-only `expense_events` audit log; `history #N` shows full change timeline per expense
+- Rich group-visible before→after edit confirmations for all edit operations
+- `✏️` indicator on edited expenses in `details` list
+- Edit ops (command + NL): split members, add person, remove person, amount, payer, date, description
+- Unequal splits: exact amounts (`Ravi:200, Priya:150`) and percentages (`Ravi:60%, Priya:40%`)
 
 Next priorities:
 1. Action Tracker skill (extracts commitments + deadlines, scheduler-driven reminders)

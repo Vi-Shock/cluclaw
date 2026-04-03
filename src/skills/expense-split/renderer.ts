@@ -124,10 +124,14 @@ I silently track expenses from your group conversation.
 • \`remove #N\` — Delete expense #N
 • \`remove last\` — Delete the most recent expense
 • \`edit #N split Ravi, Priya\` — Change who shares expense #N
+• \`edit #N split Ravi:200, Priya:150\` — Unequal exact split
+• \`edit #N split Ravi:60%, Priya:40%\` — Percentage split
+• \`edit #N add Ravi\` — Add Ravi to expense #N split
 • \`edit #N amount 350\` — Correct the amount of expense #N
 • \`edit #N payer Supriya\` — Change who paid for expense #N
 • \`edit #N remove Priya\` — Remove Priya from expense #N split
 • \`edit #N date 1 Apr\` — Correct when the expense actually happened
+• \`edit #N description Dinner at Martin's\` — Rename the expense
 • \`history #N\` — See full change history for expense #N
 • \`settle <name> <amount>\` — Record a payment
 • \`help\` — Show this message
@@ -178,6 +182,21 @@ export function renderDateChanged(
   return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\nExpense date: ${fmtDate(oldDate)} → *${fmtDate(newDate)}*`;
 }
 
+export function renderPersonAdded(
+  desc: string, position: number, actorName: string,
+  addedName: string, before: string[], after: string[], amount: number, currency: string
+): string {
+  const shareAfter = after.length > 0 ? fmt(amount / after.length, currency) : '—';
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\n${addedName} added to split\n  Before: ${before.join(', ')}\n  After: ${after.join(', ')} (${shareAfter} each)`;
+}
+
+export function renderDescriptionChanged(
+  desc: string, position: number, actorName: string,
+  oldDesc: string, newDesc: string
+): string {
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\nDescription: "${oldDesc}" → *"${newDesc}"*`;
+}
+
 // ─── Expense History ──────────────────────────────────────────────────────────
 
 export function renderExpenseHistory(
@@ -212,6 +231,10 @@ export function renderExpenseHistory(
         return `✏️ *Payer* changed by ${ev.actorName} • ${dateStr} ${time}\n   ${p['before']} → ${p['after']}`;
       case 'person_removed':
         return `✏️ *${p['removed']}* removed from split by ${ev.actorName} • ${dateStr} ${time}`;
+      case 'person_added':
+        return `✏️ *${p['added']}* added to split by ${ev.actorName} • ${dateStr} ${time}`;
+      case 'description_updated':
+        return `✏️ *Description* changed by ${ev.actorName} • ${dateStr} ${time}\n   "${p['before']}" → "${p['after']}"`;
       case 'date_updated':
         return `✏️ *Date* changed by ${ev.actorName} • ${dateStr} ${time}\n   ${p['before']} → ${p['after']}`;
       case 'deleted':

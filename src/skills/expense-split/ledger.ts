@@ -46,7 +46,26 @@ export function addExpense(
   }
 
   const amount = extraction.amount ?? 0;
-  const shareAmount = amount / splitMembers.length;
+
+  // Compute per-member share amounts (equal by default, exact or percentage if provided)
+  const splitAmountsByName = extraction.split_amounts ?? {};
+  const computedShares: Map<string, number> = new Map();
+
+  if (extraction.split_type === 'exact' && Object.keys(splitAmountsByName).length > 0) {
+    for (const member of splitMembers) {
+      const share = splitAmountsByName[member.displayName] ?? splitAmountsByName[member.displayName.split(' ')[0]];
+      computedShares.set(member.id, share ?? 0);
+    }
+  } else if (extraction.split_type === 'percentage' && Object.keys(splitAmountsByName).length > 0) {
+    for (const member of splitMembers) {
+      const pct = splitAmountsByName[member.displayName] ?? splitAmountsByName[member.displayName.split(' ')[0]] ?? 0;
+      computedShares.set(member.id, amount * (pct / 100));
+    }
+  } else {
+    // Equal split
+    const shareAmount = amount / splitMembers.length;
+    for (const member of splitMembers) computedShares.set(member.id, shareAmount);
+  }
 
   const expenseId = randomUUID();
   // Use LLM-extracted expense_date if provided, otherwise today
@@ -74,7 +93,7 @@ export function addExpense(
     db.prepare(`
       INSERT INTO expense_splits (id, expense_id, member_id, share_amount)
       VALUES (?, ?, ?, ?)
-    `).run(randomUUID(), expenseId, member.id, shareAmount);
+    `).run(randomUUID(), expenseId, member.id, computedShares.get(member.id) ?? 0);
   }
 
   return {
@@ -93,10 +112,9 @@ export function addExpense(
     splits: splitMembers.map((m) => ({
       memberId: m.id,
       memberName: m.displayName,
-      shareAmount,
+      shareAmount: computedShares.get(m.id) ?? 0,
     })),
     sourceMessageId,
-    createdAt: new Date(),
   };
 }
 
@@ -287,12 +305,15 @@ export function findExpensesByDescription(
 }
 
 /**
- * Replaces the split members for an expense with a new equal-share distribution.
+ * Replaces the split members for an expense.
+ * Pass splitAmounts (memberId → amount/percentage) for unequal splits.
  */
 export function updateExpenseSplit(
   db: Database.Database,
   expenseId: string,
-  splitMembers: Member[]
+  splitMembers: Member[],
+  splitAmounts?: Record<string, number>,  // memberId → exact amount or percentage
+  splitType: 'equal' | 'exact' | 'percentage' = 'equal'
 ): boolean {
   if (splitMembers.length === 0) return false;
 
@@ -302,11 +323,17 @@ export function updateExpenseSplit(
 
   if (!expense) return false;
 
-  const shareAmount = expense.amount / splitMembers.length;
-
   db.prepare('DELETE FROM expense_splits WHERE expense_id = ?').run(expenseId);
 
   for (const member of splitMembers) {
+    let shareAmount: number;
+    if (splitAmounts && member.id in splitAmounts) {
+      shareAmount = splitType === 'percentage'
+        ? expense.amount * (splitAmounts[member.id] / 100)
+        : splitAmounts[member.id];
+    } else {
+      shareAmount = expense.amount / splitMembers.length;
+    }
     db.prepare(`
       INSERT INTO expense_splits (id, expense_id, member_id, share_amount)
       VALUES (?, ?, ?, ?)
@@ -364,6 +391,64 @@ export function removePersonFromSplit(
 
   db.prepare(`UPDATE expenses SET updated_at = datetime('now') WHERE id = ?`).run(expenseId);
   return true;
+}
+
+/**
+ * Adds a new person to the split and recalculates equal shares for everyone.
+ * Returns false if the member is already in the split.
+ */
+export function addPersonToSplit(
+  db: Database.Database,
+  expenseId: string,
+  member: Member
+): boolean {
+  const expense = db.prepare(
+    'SELECT amount FROM expenses WHERE id = ? AND deleted_at IS NULL'
+  ).get(expenseId) as { amount: number } | undefined;
+
+  if (!expense) return false;
+
+  const existing = db.prepare(
+    'SELECT id FROM expense_splits WHERE expense_id = ? AND member_id = ?'
+  ).get(expenseId, member.id);
+
+  if (existing) return false; // already in split
+
+  const existingRows = db.prepare(
+    'SELECT id FROM expense_splits WHERE expense_id = ?'
+  ).all(expenseId) as Array<{ id: string }>;
+
+  const newCount = existingRows.length + 1;
+  const newShare = expense.amount / newCount;
+
+  // Recalculate existing shares
+  for (const row of existingRows) {
+    db.prepare('UPDATE expense_splits SET share_amount = ? WHERE id = ?').run(newShare, row.id);
+  }
+
+  // Insert new member
+  db.prepare(`
+    INSERT INTO expense_splits (id, expense_id, member_id, share_amount)
+    VALUES (?, ?, ?, ?)
+  `).run(randomUUID(), expenseId, member.id, newShare);
+
+  db.prepare(`UPDATE expenses SET updated_at = datetime('now') WHERE id = ?`).run(expenseId);
+  return true;
+}
+
+/**
+ * Updates the description of an expense.
+ */
+export function updateExpenseDescription(
+  db: Database.Database,
+  expenseId: string,
+  description: string
+): boolean {
+  const result = db.prepare(`
+    UPDATE expenses SET description = ?, updated_at = datetime('now')
+    WHERE id = ? AND deleted_at IS NULL
+  `).run(description, expenseId);
+  return result.changes > 0;
 }
 
 // ─── Audit Log ───────────────────────────────────────────────────────────────

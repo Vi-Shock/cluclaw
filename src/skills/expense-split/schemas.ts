@@ -27,6 +27,10 @@ export const ExpenseExtractionSchema = z.object({
     .string()
     .optional()
     .describe('Date the expense actually occurred as YYYY-MM-DD. Extract from expressions like "last night", "yesterday", "last Tuesday". Omit if today or unspecified.'),
+  split_amounts: z
+    .record(z.string(), z.number())
+    .optional()
+    .describe('For unequal splits: maps member name → exact amount (split_type=exact) or percentage 0-100 (split_type=percentage). Omit for equal splits.'),
   confidence: z
     .number()
     .min(0)
@@ -47,7 +51,7 @@ export type ExpenseExtraction = z.infer<typeof ExpenseExtractionSchema>;
 export const CorrectionRequestSchema = z.object({
   is_correction: z.boolean().describe('Whether this message is correcting a previous expense'),
   correction_type: z
-    .enum(['update_amount', 'remove_last', 'change_split', 'change_payer', 'add_person', 'remove_person'])
+    .enum(['update_amount', 'remove_last', 'change_split', 'change_payer', 'add_person', 'remove_person', 'change_description'])
     .optional(),
   expense_position: z.number().int().positive().optional().describe('The #N position of the target expense (e.g. 2 from "edit #2")'),
   expense_description: z.string().optional().describe('Description keyword to identify which expense to correct (e.g. "cab", "dinner")'),
@@ -55,6 +59,12 @@ export const CorrectionRequestSchema = z.object({
   new_split_among: z.array(z.string()).optional().describe('New list of people who should share the expense'),
   new_payer: z.string().optional().describe('New name of the person who paid'),
   remove_person: z.string().optional().describe('Name of the person to remove from the expense split'),
+  add_person: z.string().optional().describe('Name of the person to add to the expense split'),
+  new_description: z.string().optional().describe('New description/name for the expense'),
+  new_split_amounts: z
+    .record(z.string(), z.number())
+    .optional()
+    .describe('For unequal split corrections: maps member name → exact amount or percentage'),
   confidence: z.number().min(0).max(1).default(0.5),
 });
 
@@ -123,7 +133,9 @@ export type ExpenseEventType =
   | 'split_changed'
   | 'payer_changed'
   | 'person_removed'
+  | 'person_added'
   | 'date_updated'
+  | 'description_updated'
   | 'deleted';
 
 export interface ExpenseEvent {

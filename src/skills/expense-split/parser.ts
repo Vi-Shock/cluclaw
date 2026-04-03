@@ -21,7 +21,7 @@ export function shouldParseAsExpense(text: string): boolean {
 
 // Correction signals
 const CORRECTION_REGEX =
-  /\b(?:actually|wait|no it was|change|update|remove last|undo|delete|wasn'?t there|wasn'?t at|modify|edit|split .{1,30} between|add .{1,20} to|remove .{1,20} from|#\d+)\b/i;
+  /\b(?:actually|wait|no it was|change|update|remove last|undo|delete|wasn'?t there|wasn'?t at|modify|edit|rename|describe|split .{1,30} between|add .{1,20} to|remove .{1,20} from|#\d+)\b/i;
 
 export function looksLikeCorrection(text: string): boolean {
   return CORRECTION_REGEX.test(text);
@@ -61,7 +61,9 @@ Rules:
 - "all" in split_among means split equally among all group members
 - Confidence < 0.7: set needs_clarification=true and provide clarification_question
 - False positives: complaints ("too expensive"), hypotheticals ("we need to pay"), expressions ("I have 500 reasons")
-- Return is_expense=false for non-expense messages${examples}`;
+- Return is_expense=false for non-expense messages
+- For unequal splits: set split_type=exact and populate split_amounts with name→amount. E.g. "Ravi owes 200, Priya owes 150" → {Ravi:200, Priya:150}
+- For percentage splits: set split_type=percentage and split_amounts with name→percentage (0-100). E.g. "split 60/40" → {sender:60, other:40}${examples}`;
 
   // Include recent context messages for multi-message expense detection
   const contextMessages = recentMessages
@@ -142,16 +144,22 @@ export async function parseCorrection(
 
   const systemPrompt = `You are analyzing a group chat message to detect if it corrects a previously recorded expense.
 
-Correction signals: "actually", "wait", "no it was", "change", "update", "remove last", "undo", "delete", "wasn't there", "wasn't at", "split X between", "add X to", "remove X from", "#N" references.
+Correction signals: "actually", "wait", "no it was", "change", "update", "remove last", "undo", "delete", "wasn't there", "wasn't at", "split X between", "add X to", "remove X from", "rename", "#N" references.
 
 For corrections, extract:
-- correction_type: update_amount | remove_last | change_split | change_payer | add_person | remove_person
+- correction_type: update_amount | remove_last | change_split | change_payer | add_person | remove_person | change_description
 - expense_position: numeric position (#N) if the user references a specific expense number
 - expense_description: keyword identifying WHICH expense (e.g. "cab", "dinner", "hotel") — do NOT set this to the full sentence
 - new_amount: corrected amount for update_amount
 - new_split_among: new list of people for change_split (include the payer if they share it)
+- new_split_amounts: for unequal change_split — maps member name → exact amount or percentage (0-100). E.g. {Ravi:200, Priya:150} or {Ravi:60, Priya:40}
 - new_payer: new payer name for change_payer
 - remove_person: name of person to remove for remove_person
+- add_person: name of person to add to the split for add_person
+- new_description: new name/description for change_description
+
+For unequal splits: "Ravi owes 200, Priya owes 150" → change_split + new_split_amounts={Ravi:200, Priya:150}
+For percentage splits: "split 60/40 between me and Ravi" → change_split + new_split_amounts={sender:60, Ravi:40}
 
 Return is_correction=false if the message is NOT a correction.`;
 

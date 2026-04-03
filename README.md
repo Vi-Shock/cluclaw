@@ -244,13 +244,29 @@ See [`src/skills/expense-split/`](src/skills/expense-split/) for a complete refe
 
 | Command | Aliases | Description |
 |---|---|---|
-| `splits` | `balances`, `settle up`, `who owes what` | Show simplified settlements |
-| `details` | `expenses`, `detail` | List all recorded expenses |
+| `splits` | `balances`, `settle up` | Show simplified settlements (who owes whom) |
+| `details` | `expenses`, `detail` | List all expenses with `#N` IDs and edit indicators |
+| `history #N` | — | Full audit trail for expense #N |
+| `remove #N` | — | Delete expense at position #N |
 | `remove last` | `undo` | Delete the most recent expense |
+| `edit #N split Ravi, Priya` | — | Change who shares expense #N (equal) |
+| `edit #N split Ravi:200, Priya:150` | — | Unequal exact split |
+| `edit #N split Ravi:60%, Priya:40%` | — | Percentage-based split |
+| `edit #N add Ravi` | — | Add Ravi to the split (recalculates shares) |
+| `edit #N remove Priya` | — | Remove Priya from the split |
+| `edit #N amount 350` | — | Correct the amount |
+| `edit #N payer Supriya` | — | Change who paid |
+| `edit #N date 1 Apr` | — | Correct when the expense happened |
+| `edit #N description Dinner at Martin's` | — | Rename the expense |
 | `settle <name> <amount>` | — | Record a payment between members |
-| `help` | — | Show available commands |
+| `help` | — | Show all commands |
 
 All commands work with or without a `/` prefix (`splits` or `/splits`).
+
+**Natural language editing also works** — just chat normally:
+- *"Actually add Ravi to the cab"* → adds Ravi, recalculates shares
+- *"Rename the hotel to Airbnb"* → updates the description
+- *"Ravi owes 200 and Priya owes 150 for dinner"* → records with unequal shares
 
 ---
 
@@ -260,7 +276,14 @@ All commands work with or without a `/` prefix (`splits` or `/splits`).
 - [x] Telegram support (grammY)
 - [x] WhatsApp support (Baileys)
 - [x] LLM-agnostic provider system (Vercel AI SDK)
-- [x] Expense Split skill (with Hinglish support + debt simplification)
+- [x] Expense Split skill (Hinglish support, debt simplification, receipt scanning)
+- [x] Expense targeting by `#N` position — no ambiguity when editing
+- [x] Full audit trail with `history #N` — who changed what and when
+- [x] Dual timestamps — expense date vs date recorded (supports backdating)
+- [x] Rich edit confirmations — group-visible before→after diffs
+- [x] Add / remove people from a split post-creation
+- [x] Unequal splits — exact amounts and percentages, NL + command
+- [x] Description editing via command and natural language
 - [x] Voice note support (STT — Groq / OpenAI / local whisper.cpp)
 - [x] Receipt photo scanning (Vision — any vision-capable model)
 - [x] SQLite FTS5 message history search

@@ -22,6 +22,8 @@ import {
   updateExpenseSplit,
   updateExpensePayer,
   removePersonFromSplit,
+  addPersonToSplit,
+  updateExpenseDescription,
   logExpenseEvent,
   getExpenseEvents,
   updateExpenseDate,
@@ -39,6 +41,8 @@ import {
   renderAmountChanged,
   renderPayerChanged,
   renderPersonRemoved,
+  renderPersonAdded,
+  renderDescriptionChanged,
   renderDateChanged,
   renderExpenseHistory,
 } from './renderer.js';
@@ -187,7 +191,17 @@ const expenseSkill: Skill = {
             if (splitMembers.length === 0) return { text: '❌ Couldn\'t resolve any of the named members.' };
             const beforeSplit = result.expense.splits.map((s) => s.memberName);
             const afterSplit = splitMembers.map((m) => m.displayName);
-            updateExpenseSplit(db, result.expense.id, splitMembers);
+            // Resolve new_split_amounts by memberId for unequal splits
+            let splitAmountsById: Record<string, number> | undefined;
+            if (correction.new_split_amounts && Object.keys(correction.new_split_amounts).length > 0) {
+              splitAmountsById = {};
+              for (const [name, val] of Object.entries(correction.new_split_amounts)) {
+                const resolved = resolveMemberName(name === 'me' || name === 'I' ? message.sender.name : name, context.members);
+                if (resolved) splitAmountsById[resolved.id] = val;
+              }
+            }
+            const splitTypeForUpdate = (correction as { split_type?: string }).split_type as 'equal' | 'exact' | 'percentage' | undefined ?? 'equal';
+            updateExpenseSplit(db, result.expense.id, splitMembers, splitAmountsById, splitTypeForUpdate);
             logExpenseEvent(db, result.expense.id, message.groupId, message.sender.name, 'split_changed', { before: beforeSplit, after: afterSplit });
             const expDesc2 = result.expense.description ?? result.expense.category ?? 'expense';
             return { text: renderSplitChanged(expDesc2, result.position, message.sender.name, beforeSplit, afterSplit, result.expense.amount, result.expense.currency) };
@@ -220,6 +234,33 @@ const expenseSkill: Skill = {
             logExpenseEvent(db, result.expense.id, message.groupId, message.sender.name, 'person_removed', { removed: person.displayName, before: beforeNames, after: afterNames });
             const expDesc4 = result.expense.description ?? result.expense.category ?? 'expense';
             return { text: renderPersonRemoved(expDesc4, result.position, message.sender.name, person.displayName, beforeNames, afterNames, result.expense.amount, result.expense.currency) };
+          }
+
+          case 'add_person': {
+            if (!correction.add_person) break;
+            const result = resolveExpenseTarget(db, message.groupId, correction.expense_position, correction.expense_description);
+            if (!result) return { text: '❌ Couldn\'t find that expense. Type `details` to see all.' };
+            if ('ambiguous' in result) return { text: renderAmbiguous(result.ambiguous, db, message.groupId) };
+            const person = resolveMemberName(correction.add_person, context.members);
+            if (!person) return { text: `❌ Couldn't find member "${correction.add_person}" in this group.` };
+            const beforeNamesAdd = result.expense.splits.map((s) => s.memberName);
+            const added = addPersonToSplit(db, result.expense.id, person);
+            if (!added) return { text: `ℹ️ ${person.displayName} is already in the split.` };
+            const afterNamesAdd = [...beforeNamesAdd, person.displayName];
+            logExpenseEvent(db, result.expense.id, message.groupId, message.sender.name, 'person_added', { added: person.displayName, before: beforeNamesAdd, after: afterNamesAdd });
+            const expDesc5 = result.expense.description ?? result.expense.category ?? 'expense';
+            return { text: renderPersonAdded(expDesc5, result.position, message.sender.name, person.displayName, beforeNamesAdd, afterNamesAdd, result.expense.amount, result.expense.currency) };
+          }
+
+          case 'change_description': {
+            if (!correction.new_description) break;
+            const result = resolveExpenseTarget(db, message.groupId, correction.expense_position, correction.expense_description);
+            if (!result) return { text: '❌ Couldn\'t find that expense. Type `details` to see all.' };
+            if ('ambiguous' in result) return { text: renderAmbiguous(result.ambiguous, db, message.groupId) };
+            const oldDesc = result.expense.description ?? result.expense.category ?? 'expense';
+            updateExpenseDescription(db, result.expense.id, correction.new_description);
+            logExpenseEvent(db, result.expense.id, message.groupId, message.sender.name, 'description_updated', { before: oldDesc, after: correction.new_description });
+            return { text: renderDescriptionChanged(correction.new_description, result.position, message.sender.name, oldDesc, correction.new_description) };
           }
 
           default:
@@ -359,7 +400,7 @@ const expenseSkill: Skill = {
       const match = /^#?(\d+)\s+(\w+)\s*(.*)$/i.exec(trimmed);
       if (!match) {
         return {
-          text: '❌ Usage:\n`edit #N split Vishak, Supriya`\n`edit #N amount 350`\n`edit #N payer Supriya`\n`edit #N remove Priya`\n`edit #N date 1 Apr`',
+          text: '❌ Usage:\n`edit #N split Vishak, Supriya`\n`edit #N add Ravi`\n`edit #N amount 350`\n`edit #N payer Supriya`\n`edit #N remove Priya`\n`edit #N date 1 Apr`\n`edit #N description Dinner at Martin\'s`',
         };
       }
 
@@ -377,17 +418,51 @@ const expenseSkill: Skill = {
 
       switch (op) {
         case 'split': {
-          const names = value.split(/[,&]+/).map((n) => n.trim()).filter(Boolean);
-          if (names.length === 0) return { text: '❌ Provide at least one name to split with.' };
-          const members = names
-            .map((n) => resolveMemberName(n, context.members))
-            .filter((m): m is NonNullable<typeof m> => m !== undefined);
+          // Support: "Ravi, Priya" (equal), "Ravi:200, Priya:150" (exact), "Ravi:60%, Priya:40%" (percentage)
+          const parts = value.split(/[,&]+/).map((n) => n.trim()).filter(Boolean);
+          if (parts.length === 0) return { text: '❌ Provide at least one name to split with.' };
+
+          let splitType: 'equal' | 'exact' | 'percentage' = 'equal';
+          const splitAmountsById: Record<string, number> = {};
+          const members: NonNullable<ReturnType<typeof resolveMemberName>>[] = [];
+
+          for (const part of parts) {
+            // Match "Name:200" or "Name:60%"
+            const colonMatch = /^(.+?):(\d+(?:\.\d+)?)(%)?\s*$/.exec(part);
+            if (colonMatch) {
+              const memberName = colonMatch[1].trim();
+              const val = parseFloat(colonMatch[2]);
+              const isPct = colonMatch[3] === '%';
+              if (isPct) splitType = 'percentage';
+              else if (splitType === 'equal') splitType = 'exact';
+              const m = resolveMemberName(memberName, context.members);
+              if (!m) return { text: `❌ Couldn't find member "${memberName}".` };
+              members.push(m);
+              splitAmountsById[m.id] = val;
+            } else {
+              const m = resolveMemberName(part, context.members);
+              if (!m) return { text: `❌ Couldn't find member "${part}".` };
+              members.push(m);
+            }
+          }
+
           if (members.length === 0) return { text: '❌ Couldn\'t resolve any of the named members.' };
           const beforeSplit = expense.splits.map((s) => s.memberName);
           const afterSplit = members.map((m) => m.displayName);
-          updateExpenseSplit(db, expense.id, members);
-          logExpenseEvent(db, expense.id, context.groupId, context.members.find((m) => m.displayName === context.groupId)?.displayName ?? 'unknown', 'split_changed', { before: beforeSplit, after: afterSplit });
+          updateExpenseSplit(db, expense.id, members, Object.keys(splitAmountsById).length > 0 ? splitAmountsById : undefined, splitType);
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'split_changed', { before: beforeSplit, after: afterSplit });
           return { text: renderSplitChanged(desc, position, 'You', beforeSplit, afterSplit, expense.amount, expense.currency) };
+        }
+
+        case 'add': {
+          const personToAdd = resolveMemberName(value, context.members);
+          if (!personToAdd) return { text: `❌ Couldn't find member "${value}".` };
+          const beforeNamesAdd = expense.splits.map((s) => s.memberName);
+          const added = addPersonToSplit(db, expense.id, personToAdd);
+          if (!added) return { text: `ℹ️ ${personToAdd.displayName} is already in the split.` };
+          const afterNamesAdd = [...beforeNamesAdd, personToAdd.displayName];
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'person_added', { added: personToAdd.displayName, before: beforeNamesAdd, after: afterNamesAdd });
+          return { text: renderPersonAdded(desc, position, 'You', personToAdd.displayName, beforeNamesAdd, afterNamesAdd, expense.amount, expense.currency) };
         }
 
         case 'amount': {
@@ -395,7 +470,7 @@ const expenseSkill: Skill = {
           if (isNaN(amount) || amount <= 0) return { text: '❌ Invalid amount.' };
           const oldAmt = expense.amount;
           updateExpenseAmount(db, expense.id, amount);
-          logExpenseEvent(db, expense.id, context.groupId, 'you', 'amount_updated', { before: oldAmt, after: amount });
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'amount_updated', { before: oldAmt, after: amount });
           return { text: renderAmountChanged(desc, position, 'You', oldAmt, amount, expense.currency) };
         }
 
@@ -404,7 +479,7 @@ const expenseSkill: Skill = {
           if (!newPayer) return { text: `❌ Couldn't find member "${value}".` };
           const oldPayer = expense.payerName;
           updateExpensePayer(db, expense.id, newPayer.id);
-          logExpenseEvent(db, expense.id, context.groupId, 'you', 'payer_changed', { before: oldPayer, after: newPayer.displayName });
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'payer_changed', { before: oldPayer, after: newPayer.displayName });
           return { text: renderPayerChanged(desc, position, 'You', oldPayer, newPayer.displayName) };
         }
 
@@ -414,7 +489,7 @@ const expenseSkill: Skill = {
           const beforeNames = expense.splits.map((s) => s.memberName);
           const afterNames = beforeNames.filter((n) => n !== person.displayName);
           removePersonFromSplit(db, expense.id, person.id);
-          logExpenseEvent(db, expense.id, context.groupId, 'you', 'person_removed', { removed: person.displayName, before: beforeNames, after: afterNames });
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'person_removed', { removed: person.displayName, before: beforeNames, after: afterNames });
           return { text: renderPersonRemoved(desc, position, 'You', person.displayName, beforeNames, afterNames, expense.amount, expense.currency) };
         }
 
@@ -423,12 +498,20 @@ const expenseSkill: Skill = {
           if (!parsed) return { text: `❌ Couldn't parse date "${value}". Try: 1 Apr, Apr 1, yesterday, 2026-04-01` };
           const oldDate = expense.expenseDate;
           updateExpenseDate(db, expense.id, parsed);
-          logExpenseEvent(db, expense.id, context.groupId, 'you', 'date_updated', { before: oldDate.toISOString().split('T')[0], after: parsed });
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'date_updated', { before: oldDate.toISOString().split('T')[0], after: parsed });
           return { text: renderDateChanged(desc, position, 'You', oldDate, new Date(parsed)) };
         }
 
+        case 'description': {
+          if (!value) return { text: '❌ Provide a new description.' };
+          const oldDescEdit = expense.description ?? expense.category ?? 'expense';
+          updateExpenseDescription(db, expense.id, value);
+          logExpenseEvent(db, expense.id, context.groupId, 'You', 'description_updated', { before: oldDescEdit, after: value });
+          return { text: renderDescriptionChanged(value, position, 'You', oldDescEdit, value) };
+        }
+
         default:
-          return { text: `❌ Unknown operation "${op}". Use: split, amount, payer, remove, date` };
+          return { text: `❌ Unknown operation "${op}". Use: split, add, amount, payer, remove, date, description` };
       }
     },
 
