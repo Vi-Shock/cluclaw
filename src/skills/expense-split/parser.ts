@@ -27,6 +27,56 @@ export function looksLikeCorrection(text: string): boolean {
   return CORRECTION_REGEX.test(text);
 }
 
+// ─── Regex Fast-Path Correction ───────────────────────────────────────────────
+
+const STOPWORDS = new Set(['split', 'bill', 'expense', 'expenses', 'it', 'this', 'that', 'the', 'a', 'an', 'for', 'my', 'our']);
+
+/**
+ * Extracts common correction intents via regex — no LLM needed.
+ * Covers: "remove X from Y", "add X to Y", "X didn't come / wasn't there".
+ * Returns a partial CorrectionRequest or null if no pattern matched.
+ */
+export function fastParseCorrection(text: string): Partial<CorrectionRequest> | null {
+  // Shared: extract #N position if present anywhere in the message
+  const posInText = /#(\d+)/i.exec(text);
+  const expense_position = posInText ? parseInt(posInText[1], 10) : undefined;
+
+  // Helper: extract first meaningful word after a prefix as expense description
+  function extractDesc(after: string): string | undefined {
+    const words = after.trim().replace(/^(the|a|an|this|that|my|our)\s+/i, '').split(/\s+/);
+    const w = words[0]?.replace(/[^a-zA-Z0-9]/g, '');
+    return w && !STOPWORDS.has(w.toLowerCase()) ? w : undefined;
+  }
+
+  // "remove X from [the] <desc> [expense/split/bill]"
+  const removeFrom = /\bremove\s+([a-zA-Z][a-zA-Z ]{0,30}?)\s+from\b(.*)$/i.exec(text);
+  if (removeFrom) {
+    const remove_person = removeFrom[1].trim();
+    const expense_description = expense_position ? undefined : extractDesc(removeFrom[2]);
+    return { is_correction: true, correction_type: 'remove_person', remove_person, expense_description, expense_position, confidence: 0.9 };
+  }
+
+  // "add X to [the] <desc> [expense/split/bill]" or "add X to [the] split [for #N]"
+  const addTo = /\badd\s+([a-zA-Z][a-zA-Z ]{0,30}?)\s+to\b(.*)$/i.exec(text);
+  if (addTo) {
+    const add_person = addTo[1].trim();
+    const afterTo = addTo[2];
+    // If "to split for #N" or "to #N", description is empty and position is used
+    const expense_description = expense_position ? undefined : extractDesc(afterTo);
+    return { is_correction: true, correction_type: 'add_person', add_person, expense_description, expense_position, confidence: 0.9 };
+  }
+
+  // "X wasn't there / wasn't at [the] <desc>" → remove_person
+  const wasntThere = /\b([a-zA-Z][a-zA-Z ]{0,20}?)\s+wasn'?t\s+(?:there|at|part of|in)\b(.*)$/i.exec(text);
+  if (wasntThere) {
+    const remove_person = wasntThere[1].trim();
+    const expense_description = expense_position ? undefined : extractDesc(wasntThere[2]);
+    return { is_correction: true, correction_type: 'remove_person', remove_person, expense_description, expense_position, confidence: 0.85 };
+  }
+
+  return null;
+}
+
 // ─── Context Builder ──────────────────────────────────────────────────────────
 
 function buildExpensePrompt(

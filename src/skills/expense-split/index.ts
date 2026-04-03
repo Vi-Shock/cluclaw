@@ -6,6 +6,7 @@ import {
   looksLikeCorrection,
   parseExpense,
   parseCorrection,
+  fastParseCorrection,
   resolveMemberName,
 } from './parser.js';
 import {
@@ -160,7 +161,9 @@ const expenseSkill: Skill = {
 
     // 1. Check for corrections first
     if (looksLikeCorrection(text)) {
-      const correction = await parseCorrection(message, context);
+      // Try deterministic regex extraction first; fall back to LLM only if needed
+      const fastResult = fastParseCorrection(text);
+      const correction = fastResult ?? await parseCorrection(message, context);
       if (correction) {
         switch (correction.correction_type) {
           case 'remove_last': {
