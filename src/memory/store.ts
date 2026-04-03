@@ -200,3 +200,25 @@ export function upsertMember(
   `).run(id, groupId, platformUserId, displayName, phoneNumber ?? null);
   return id;
 }
+
+/**
+ * Finds or creates a member by display name. Used when a person is mentioned
+ * in a message (e.g. "Supriya paid 50") but hasn't sent a message yet and
+ * isn't in the members table. Creates a placeholder with a synthetic platform ID.
+ */
+export function ensureMemberByName(
+  db: Database.Database,
+  groupId: string,
+  displayName: string
+): string {
+  // Try exact name match first (case-insensitive)
+  const existing = db.prepare(
+    `SELECT id FROM members WHERE group_id = ? AND LOWER(display_name) = LOWER(?)`
+  ).get(groupId, displayName) as { id: string } | undefined;
+
+  if (existing) return existing.id;
+
+  // Create placeholder — synthetic platform_user_id derived from name
+  const syntheticUserId = `named:${displayName.toLowerCase().replace(/\s+/g, '_')}`;
+  return upsertMember(db, groupId, syntheticUserId, displayName);
+}

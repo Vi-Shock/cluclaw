@@ -4,6 +4,7 @@ import type { Member } from '../../types.js';
 import type { ExpenseExtraction, Expense, Balance } from './schemas.js';
 import { resolveMemberName } from './parser.js';
 import { logger } from '../../core/logger.js';
+import { ensureMemberByName } from '../../memory/store.js';
 
 // ─── Expense CRUD ─────────────────────────────────────────────────────────────
 
@@ -15,18 +16,29 @@ export function addExpense(
   sourceMessageId: string,
   senderName: string
 ): Expense | null {
+  let knownMembers = members; // local copy so we can append placeholders
   const payerName = extraction.payer ?? senderName;
-  const payerMember = resolveMemberName(payerName, members);
+  let payerMember = resolveMemberName(payerName, knownMembers);
 
   if (!payerMember) {
-    logger.warn(`Could not resolve payer "${payerName}" in member list`);
-    return null;
+    // Auto-register the named person as a placeholder member so the expense isn't lost
+    logger.info(`Auto-registering unknown payer "${payerName}" as placeholder member`);
+    const id = ensureMemberByName(db, groupId, payerName);
+    payerMember = { id, groupId, platformUserId: `named:${payerName}`, displayName: payerName, aliases: [] };
+    knownMembers = [...knownMembers, payerMember];
   }
 
-  const splitNames = extraction.split_among ?? members.map((m) => m.displayName);
-  const splitMembers = splitNames
-    .map((name) => resolveMemberName(name, members))
-    .filter((m): m is Member => m !== undefined);
+  const splitNames = extraction.split_among ?? knownMembers.map((m) => m.displayName);
+  const splitMembers: Member[] = splitNames.map((name) => {
+    const resolved = resolveMemberName(name, knownMembers);
+    if (resolved) return resolved;
+    // Auto-register unknown split members too
+    logger.info(`Auto-registering unknown split member "${name}" as placeholder member`);
+    const id = ensureMemberByName(db, groupId, name);
+    const placeholder: Member = { id, groupId, platformUserId: `named:${name}`, displayName: name, aliases: [] };
+    knownMembers = [...knownMembers, placeholder];
+    return placeholder;
+  });
 
   if (splitMembers.length === 0) {
     logger.warn('Could not resolve any split members');
