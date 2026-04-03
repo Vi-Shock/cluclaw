@@ -23,11 +23,11 @@ Think "OpenClaw, but for groups instead of individuals."
 
 ### LLM Abstraction (CRITICAL)
 - **NEVER** import `@anthropic-ai/sdk`, `openai`, or any provider SDK directly in skills or core logic
-- **ALWAYS** use `src/core/llm.ts` which wraps Vercel AI SDK
-- The `extractStructured<T>(prompt, zodSchema)` function is the ONLY way to call an LLM
+- **ALWAYS** access LLM via `context.llm.extractStructured()` or `context.llm.generateText()` inside skills
+- `src/core/llm.ts` exports the underlying functions — only `src/core/agent.ts` and `src/memory/group-context.ts` import from it directly
 - Provider is configured via `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` env vars
 - Vision calls use `VISION_PROVIDER` / `VISION_MODEL` (falls back to LLM config)
-- STT calls use `STT_PROVIDER` / `STT_MODEL`
+- STT calls use `STT_PROVIDER` / `STT_MODEL` — STT uses `openai`/`groq-sdk` directly in `src/utils/stt.ts` (not Vercel AI SDK, which has no STT abstraction)
 
 ### Message Bus (CRITICAL)
 - WhatsApp and Telegram messages MUST be normalized to `GroupMessage` before any processing
@@ -66,6 +66,8 @@ interface GroupMessage {
 interface Skill {
   name: string;
   description: string;
+  skillMd?: string;  // loaded automatically from SKILL.md at startup — use for few-shot prompts
+
   shouldActivate(message: GroupMessage): boolean;  // FAST check, no LLM. regex/keywords only.
   handle(message: GroupMessage, context: GroupContext): Promise<SkillResponse | null>;
   commands: Record<string, CommandHandler>;  // e.g., "splits", "details", "help"
@@ -129,8 +131,12 @@ interface GroupContext {
   groupId: string;
   platform: 'whatsapp' | 'telegram';
   members: Member[];
-  history: GroupMessage[];               // recent messages (last N, configurable)
-  timezone: string;                      // group timezone (default from env)
+  history: GroupMessage[];               // recent messages (last N, configurable via HISTORY_LIMIT)
+  timezone: string;                      // group timezone (default from DEFAULT_TIMEZONE env)
+  llm: {                                 // provider-agnostic LLM access
+    extractStructured<T>(prompt: string, schema: ZodSchema<T>, options?: { vision?: boolean; imageBase64?: string; systemPrompt?: string }): Promise<T>;
+    generateText(prompt: string, options?: { systemPrompt?: string }): Promise<string>;
+  };
   getSkillState<T>(skillName: string): T | null;
   setSkillState<T>(skillName: string, state: T): void;
   scheduler: {
@@ -213,10 +219,13 @@ data/
 ## Environment Variables (.env)
 
 ```env
+# === Bot Identity ===
+BOT_NAME=CluClaw
+
 # === Channel Configuration ===
-WHATSAPP_ENABLED=true
+WHATSAPP_ENABLED=false          # default false — uses unofficial API, use a dedicated number
 TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=             # from @BotFather
+TELEGRAM_BOT_TOKEN=             # from @BotFather — disable Group Privacy in BotFather settings
 
 # === LLM Configuration ===
 LLM_PROVIDER=groq               # openai | anthropic | groq | google | ollama | mistral
@@ -225,8 +234,8 @@ LLM_API_KEY=
 LLM_BASE_URL=                   # required for ollama (http://localhost:11434)
 
 # === Vision Model (for receipt photos) ===
-VISION_PROVIDER=                 # defaults to LLM_PROVIDER
-VISION_MODEL=                    # defaults to LLM_MODEL (must support vision)
+VISION_PROVIDER=                 # defaults to LLM_PROVIDER (model must support vision)
+VISION_MODEL=                    # defaults to LLM_MODEL
 VISION_API_KEY=                  # defaults to LLM_API_KEY
 
 # === Speech-to-Text (for voice notes) ===
@@ -237,7 +246,9 @@ STT_API_KEY=                     # defaults to LLM_API_KEY
 # === General ===
 LOG_LEVEL=info                   # debug | info | warn | error
 DATA_DIR=./data                  # where SQLite databases are stored
-DEFAULT_CURRENCY=INR             # default currency for expense parsing
+DEFAULT_CURRENCY=INR             # fallback when no currency symbol is detected
+DEFAULT_TIMEZONE=Asia/Kolkata    # group timezone for scheduled tasks
+HISTORY_LIMIT=50                 # how many recent messages to load into GroupContext
 ```
 
 ## Build & Run Commands
@@ -253,8 +264,11 @@ npm run dev
 npm run build
 npm start
 
-# Run with Docker
-docker compose up
+# Type check
+npm run typecheck
+
+# Unit tests
+npm test
 ```
 
 ## Key Dependencies
@@ -264,34 +278,44 @@ docker compose up
   "@whiskeysockets/baileys": "^6.7.x",
   "grammy": "^1.x",
   "ai": "^4.x",
+  "@ai-sdk/openai": "^1.x",
+  "@ai-sdk/anthropic": "^1.x",
+  "@ai-sdk/groq": "^1.x",
+  "@ai-sdk/google": "^1.x",
   "better-sqlite3": "^11.x",
   "zod": "^3.x",
-  "dotenv": "^16.x"
+  "dotenv": "^16.x",
+  "openai": "^4.x",
+  "groq-sdk": "^0.7.x"
 }
 ```
 
-Plus one provider SDK based on user config (e.g., `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/groq`, etc.)
+All four `@ai-sdk/*` provider packages are bundled. Users switch between them via `LLM_PROVIDER` env var — no reinstall needed. `openai` and `groq-sdk` are used directly in `src/utils/stt.ts` for the Whisper STT API.
 
 ## Current Development Phase
 
-**Phase: MVP — Expense Split Skill**
+**Phase: MVP Complete — Next: Second Skill**
 
-Priority order:
-1. Core infrastructure (config, llm.ts, message-bus, skill-loader, scheduler)
-2. Telegram channel (simpler to test with, bot API is straightforward)
-3. Expense-split skill (parser + ledger + renderer)
-4. WhatsApp channel (Baileys, QR auth)
-5. Platform-aware formatter (WhatsApp vs Telegram formatting differences)
-6. Voice note support (STT)
-7. Receipt photo support (Vision)
+All 7 MVP phases are shipped:
+1. ✅ Core infrastructure (config, llm.ts, message-bus, skill-loader, scheduler)
+2. ✅ Telegram channel (grammY, privacy mode OFF, media download, group join detection)
+3. ✅ Expense-split skill (parser + ledger + renderer + Hinglish support + debt simplification)
+4. ✅ WhatsApp channel (Baileys, QR auth, rate limiting, exponential backoff reconnection)
+5. ✅ Platform-aware formatter (WhatsApp vs Telegram markup differences)
+6. ✅ Voice note support (STT — Groq / OpenAI / local whisper.cpp)
+7. ✅ Receipt photo support (Vision — any vision-capable model)
+
+Next priorities:
+1. Action Tracker skill (extracts commitments + deadlines, scheduler-driven reminders)
+2. Poll / Vote skill (skill-state machine pattern)
+3. Trip Planner skill (uses url.ts for link metadata)
 
 ## Testing Approach
 
-- Test expense parser with a bank of example messages (see `SKILL.md` for examples)
-- Test against a private Telegram group first (faster iteration than WhatsApp)
-- Manual testing initially — unit tests for parser and ledger logic
-- Keep a `test-messages.json` with edge cases:
-  - Mixed languages ("Paid 500 rupees for chai")
-  - Ambiguous splits ("me and Ravi split it")
-  - Corrections ("actually that was 1800")
-  - Non-expense messages that look like expenses ("I have 500 reasons to be happy")
+- **Unit tests** (automated): `npm test` — Node.js built-in test runner, no extra deps
+  - `src/skills/expense-split/parser.test.ts` — 25+ regex filter tests (no LLM, fast)
+  - `src/skills/expense-split/ledger.test.ts` — balance + debt simplification with in-memory SQLite
+  - `src/skills/expense-split/test-messages.json` — 30+ test message bank for manual/LLM testing
+- **Manual integration testing**: run `npm run dev`, add bot to a private Telegram group, send messages
+- Test against Telegram first (faster iteration than WhatsApp)
+- Use `LOG_LEVEL=debug` in `.env` to see detailed parsing output during testing
