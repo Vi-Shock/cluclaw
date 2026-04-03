@@ -108,8 +108,9 @@ export class Agent {
         const response = await this.routeCommand(parsed.command, parsed.args, context);
         if (response) {
           await this.sendResponse(message.groupId, message.platform, response, message.id);
+          return; // Only short-circuit if a command was actually handled
         }
-        return;
+        // No handler found — fall through to skill routing
       }
     }
 
