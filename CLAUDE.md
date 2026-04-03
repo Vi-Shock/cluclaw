@@ -1,4 +1,4 @@
-# CLAUDE.md — Group AI Agent Platform
+# CLAUDE.md — CluClaw
 
 ## What This Project Is
 

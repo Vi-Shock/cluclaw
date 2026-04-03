@@ -1,4 +1,4 @@
-# Group AI Agent Platform — MVP Product Spec
+# CluClaw — MVP Product Spec
 
 ## Vision
 
@@ -161,7 +161,7 @@ export async function extractStructured<T>(
 ### Project Structure
 
 ```
-group-ai-agent/
+cluclaw/
 ├── src/
 │   ├── core/
 │   │   ├── agent.ts              # Main agent loop — receives messages, routes to skills
