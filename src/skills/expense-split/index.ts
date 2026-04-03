@@ -400,7 +400,7 @@ const expenseSkill: Skill = {
         return expenseSkill.commands['remove last']!('', context);
       }
       const posMatch = /^#?(\d+)$/.exec(trimmed);
-      if (!posMatch) return { text: '❌ Usage: `remove #N` or `remove last`' };
+      if (!posMatch) return null; // doesn't look like a command — let NL correction handle it
       const position = parseInt(posMatch[1], 10);
       const db = getGroupDb(context.groupId);
       const expense = getExpenseByPosition(db, context.groupId, position);
@@ -414,11 +414,7 @@ const expenseSkill: Skill = {
       // op: split <names> | amount <value> | payer <name> | remove <name>
       const trimmed = args.trim();
       const match = /^#?(\d+)\s+(\w+)\s*(.*)$/i.exec(trimmed);
-      if (!match) {
-        return {
-          text: '❌ Usage:\n`edit #N split Vishak, Supriya`\n`edit #N add Ravi`\n`edit #N amount 350`\n`edit #N payer Supriya`\n`edit #N remove Priya`\n`edit #N date 1 Apr`\n`edit #N description Dinner at Martin\'s`',
-        };
-      }
+      if (!match) return null; // doesn't start with #N — let NL correction handle it
 
       const position = parseInt(match[1], 10);
       const op = match[2].toLowerCase();
@@ -534,7 +530,7 @@ const expenseSkill: Skill = {
     history: async (args: string, context: GroupContext): Promise<SkillResponse | null> => {
       const trimmed = args.trim();
       const posMatch = /^#?(\d+)$/.exec(trimmed);
-      if (!posMatch) return { text: '❌ Usage: `history #N` — e.g. `history #2`' };
+      if (!posMatch) return null; // let NL correction handle it
       const position = parseInt(posMatch[1], 10);
       const db = getGroupDb(context.groupId);
       const expense = getExpenseByPosition(db, context.groupId, position);
