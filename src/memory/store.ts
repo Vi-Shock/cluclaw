@@ -127,10 +127,24 @@ function migrateGroupDb(db: Database.Database): void {
       category          TEXT,
       split_type        TEXT NOT NULL DEFAULT 'equal',
       source_message_id TEXT,
+      expense_date      TEXT,
       created_at        TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
       deleted_at        TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS expense_events (
+      id          TEXT PRIMARY KEY,
+      expense_id  TEXT NOT NULL,
+      group_id    TEXT NOT NULL REFERENCES groups(id),
+      actor_name  TEXT NOT NULL,
+      event_type  TEXT NOT NULL,
+      payload     TEXT NOT NULL DEFAULT '{}',
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_expense_events_expense_id
+      ON expense_events (expense_id);
 
     CREATE TABLE IF NOT EXISTS expense_splits (
       id           TEXT PRIMARY KEY,
@@ -157,6 +171,9 @@ function migrateGroupDb(db: Database.Database): void {
       PRIMARY KEY (group_id, skill_name)
     );
   `);
+
+  // Additive migration for existing groups — safe if column already exists
+  try { db.exec(`ALTER TABLE expenses ADD COLUMN expense_date TEXT`); } catch { /* exists */ }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

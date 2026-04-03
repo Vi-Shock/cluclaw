@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import type Database from 'better-sqlite3';
 import type { Member } from '../../types.js';
-import type { ExpenseExtraction, Expense, Balance } from './schemas.js';
+import type { ExpenseExtraction, Expense, Balance, ExpenseEvent, ExpenseEventType } from './schemas.js';
 import { resolveMemberName } from './parser.js';
 import { logger } from '../../core/logger.js';
 import { ensureMemberByName } from '../../memory/store.js';
@@ -49,12 +49,14 @@ export function addExpense(
   const shareAmount = amount / splitMembers.length;
 
   const expenseId = randomUUID();
+  // Use LLM-extracted expense_date if provided, otherwise today
+  const expenseDateStr = extraction.expense_date ?? new Date().toISOString().split('T')[0];
 
   db.prepare(`
     INSERT INTO expenses
       (id, group_id, payer_id, amount, currency, description, category,
-       split_type, source_message_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       split_type, source_message_id, expense_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     expenseId,
     groupId,
@@ -64,7 +66,8 @@ export function addExpense(
     extraction.description ?? null,
     extraction.category ?? null,
     extraction.split_type ?? 'equal',
-    sourceMessageId
+    sourceMessageId,
+    expenseDateStr
   );
 
   for (const member of splitMembers) {
@@ -84,6 +87,9 @@ export function addExpense(
     description: extraction.description,
     category: extraction.category,
     splitType: (extraction.split_type ?? 'equal') as 'equal' | 'exact' | 'percentage',
+    expenseDate: new Date(expenseDateStr),
+    createdAt: new Date(),
+    hasEdits: false,
     splits: splitMembers.map((m) => ({
       memberId: m.id,
       memberName: m.displayName,
@@ -152,6 +158,7 @@ interface ExpenseRowFull {
   category: string | null;
   split_type: string;
   source_message_id: string | null;
+  expense_date: string | null;
   created_at: string;
 }
 
@@ -160,6 +167,45 @@ interface SplitRowFull {
   member_id: string;
   member_name: string;
   share_amount: number;
+}
+
+function rowToExpense(db: Database.Database, row: ExpenseRowFull, editedIds: Set<string>): Expense {
+  const splits = db.prepare(`
+    SELECT es.*, m.display_name AS member_name
+    FROM expense_splits es
+    JOIN members m ON es.member_id = m.id
+    WHERE es.expense_id = ?
+  `).all(row.id) as SplitRowFull[];
+
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    payerId: row.payer_id,
+    payerName: row.payer_name,
+    amount: row.amount,
+    currency: row.currency,
+    description: row.description ?? undefined,
+    category: row.category ?? undefined,
+    splitType: row.split_type as 'equal' | 'exact' | 'percentage',
+    splits: splits.map((s) => ({
+      memberId: s.member_id,
+      memberName: s.member_name,
+      shareAmount: s.share_amount,
+    })),
+    sourceMessageId: row.source_message_id ?? undefined,
+    expenseDate: new Date(row.expense_date ?? row.created_at),
+    createdAt: new Date(row.created_at),
+    hasEdits: editedIds.has(row.id),
+  };
+}
+
+/** Returns IDs of expenses that have been edited after creation. */
+function getEditedIds(db: Database.Database, groupId: string): Set<string> {
+  const rows = db.prepare(`
+    SELECT DISTINCT expense_id FROM expense_events
+    WHERE group_id = ? AND event_type != 'created'
+  `).all(groupId) as Array<{ expense_id: string }>;
+  return new Set(rows.map((r) => r.expense_id));
 }
 
 export function getExpenses(
@@ -176,33 +222,8 @@ export function getExpenses(
     LIMIT ?
   `).all(groupId, limit) as ExpenseRowFull[];
 
-  return rows.map((row) => {
-    const splits = db.prepare(`
-      SELECT es.*, m.display_name AS member_name
-      FROM expense_splits es
-      JOIN members m ON es.member_id = m.id
-      WHERE es.expense_id = ?
-    `).all(row.id) as SplitRowFull[];
-
-    return {
-      id: row.id,
-      groupId: row.group_id,
-      payerId: row.payer_id,
-      payerName: row.payer_name,
-      amount: row.amount,
-      currency: row.currency,
-      description: row.description ?? undefined,
-      category: row.category ?? undefined,
-      splitType: row.split_type as 'equal' | 'exact' | 'percentage',
-      splits: splits.map((s) => ({
-        memberId: s.member_id,
-        memberName: s.member_name,
-        shareAmount: s.share_amount,
-      })),
-      sourceMessageId: row.source_message_id ?? undefined,
-      createdAt: new Date(row.created_at),
-    };
-  });
+  const editedIds = getEditedIds(db, groupId);
+  return rows.map((row) => rowToExpense(db, row, editedIds));
 }
 
 export function addSettlement(
@@ -240,33 +261,11 @@ export function getExpenseByPosition(
   `).get(groupId, position - 1) as ExpenseRowFull | undefined;
 
   if (!row) return null;
-
-  const splits = db.prepare(`
-    SELECT es.*, m.display_name AS member_name
-    FROM expense_splits es
-    JOIN members m ON es.member_id = m.id
-    WHERE es.expense_id = ?
-  `).all(row.id) as SplitRowFull[];
-
-  return {
-    id: row.id,
-    groupId: row.group_id,
-    payerId: row.payer_id,
-    payerName: row.payer_name,
-    amount: row.amount,
-    currency: row.currency,
-    description: row.description ?? undefined,
-    category: row.category ?? undefined,
-    splitType: row.split_type as 'equal' | 'exact' | 'percentage',
-    splits: splits.map((s) => ({ memberId: s.member_id, memberName: s.member_name, shareAmount: s.share_amount })),
-    sourceMessageId: row.source_message_id ?? undefined,
-    createdAt: new Date(row.created_at),
-  };
+  return rowToExpense(db, row, getEditedIds(db, groupId));
 }
 
 /**
  * Returns all expenses whose description or category contains the query string.
- * Multiple results mean the caller should ask for clarification.
  */
 export function findExpensesByDescription(
   db: Database.Database,
@@ -283,29 +282,8 @@ export function findExpensesByDescription(
     ORDER BY e.created_at DESC
   `).all(groupId, pattern, pattern) as ExpenseRowFull[];
 
-  return rows.map((row) => {
-    const splits = db.prepare(`
-      SELECT es.*, m.display_name AS member_name
-      FROM expense_splits es
-      JOIN members m ON es.member_id = m.id
-      WHERE es.expense_id = ?
-    `).all(row.id) as SplitRowFull[];
-
-    return {
-      id: row.id,
-      groupId: row.group_id,
-      payerId: row.payer_id,
-      payerName: row.payer_name,
-      amount: row.amount,
-      currency: row.currency,
-      description: row.description ?? undefined,
-      category: row.category ?? undefined,
-      splitType: row.split_type as 'equal' | 'exact' | 'percentage',
-      splits: splits.map((s) => ({ memberId: s.member_id, memberName: s.member_name, shareAmount: s.share_amount })),
-      sourceMessageId: row.source_message_id ?? undefined,
-      createdAt: new Date(row.created_at),
-    };
-  });
+  const editedIds = getEditedIds(db, groupId);
+  return rows.map((row) => rowToExpense(db, row, editedIds));
 }
 
 /**
@@ -386,6 +364,56 @@ export function removePersonFromSplit(
 
   db.prepare(`UPDATE expenses SET updated_at = datetime('now') WHERE id = ?`).run(expenseId);
   return true;
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+export function logExpenseEvent(
+  db: Database.Database,
+  expenseId: string,
+  groupId: string,
+  actorName: string,
+  eventType: ExpenseEventType,
+  payload: Record<string, unknown> = {}
+): void {
+  db.prepare(`
+    INSERT INTO expense_events (id, expense_id, group_id, actor_name, event_type, payload)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(randomUUID(), expenseId, groupId, actorName, eventType, JSON.stringify(payload));
+}
+
+export function getExpenseEvents(
+  db: Database.Database,
+  expenseId: string
+): ExpenseEvent[] {
+  const rows = db.prepare(`
+    SELECT * FROM expense_events WHERE expense_id = ? ORDER BY created_at ASC
+  `).all(expenseId) as Array<{
+    id: string; expense_id: string; group_id: string;
+    actor_name: string; event_type: string; payload: string; created_at: string;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    expenseId: r.expense_id,
+    groupId: r.group_id,
+    actorName: r.actor_name,
+    eventType: r.event_type as ExpenseEventType,
+    payload: JSON.parse(r.payload) as Record<string, unknown>,
+    createdAt: new Date(r.created_at),
+  }));
+}
+
+export function updateExpenseDate(
+  db: Database.Database,
+  expenseId: string,
+  newDateStr: string  // YYYY-MM-DD
+): boolean {
+  const result = db.prepare(`
+    UPDATE expenses SET expense_date = ?, updated_at = datetime('now')
+    WHERE id = ? AND deleted_at IS NULL
+  `).run(newDateStr, expenseId);
+  return result.changes > 0;
 }
 
 // ─── Balance Calculation ──────────────────────────────────────────────────────

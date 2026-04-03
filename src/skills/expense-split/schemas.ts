@@ -23,6 +23,10 @@ export const ExpenseExtractionSchema = z.object({
     .optional()
     .describe('Category of the expense'),
   description: z.string().optional().describe('Brief description of what was purchased'),
+  expense_date: z
+    .string()
+    .optional()
+    .describe('Date the expense actually occurred as YYYY-MM-DD. Extract from expressions like "last night", "yesterday", "last Tuesday". Omit if today or unspecified.'),
   confidence: z
     .number()
     .min(0)
@@ -108,6 +112,27 @@ export interface Expense {
   splitType: 'equal' | 'exact' | 'percentage';
   splits: Array<{ memberId: string; memberName: string; shareAmount: number }>;
   sourceMessageId?: string;
+  expenseDate: Date;   // when the money actually changed hands
+  createdAt: Date;     // when the bot recorded it
+  hasEdits?: boolean;  // whether any edits have been made after creation
+}
+
+export type ExpenseEventType =
+  | 'created'
+  | 'amount_updated'
+  | 'split_changed'
+  | 'payer_changed'
+  | 'person_removed'
+  | 'date_updated'
+  | 'deleted';
+
+export interface ExpenseEvent {
+  id: string;
+  expenseId: string;
+  groupId: string;
+  actorName: string;
+  eventType: ExpenseEventType;
+  payload: Record<string, unknown>;
   createdAt: Date;
 }
 

@@ -1,4 +1,4 @@
-import type { Balance, Expense } from './schemas.js';
+import type { Balance, Expense, ExpenseEvent } from './schemas.js';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   INR: '₹',
@@ -57,11 +57,20 @@ export function renderDetails(expenses: Expense[]): string {
   const lines = expenses.map((e, i) => {
     const desc = e.description ?? e.category ?? 'expense';
     const splitNames = e.splits.map((s) => s.memberName).join(', ');
-    const date = fmtDate(e.createdAt);
-    return `#${i + 1}. ${e.payerName} paid *${fmt(e.amount, e.currency)}* for ${desc} • ${date}\n   Split: ${splitNames}`;
+    const expDate = fmtDate(e.expenseDate);
+    const editedFlag = e.hasEdits ? ' ✏️' : '';
+
+    // Show "recorded X" suffix only when the recording date differs from expense date
+    const expDateStr = e.expenseDate.toDateString();
+    const createdDateStr = e.createdAt.toDateString();
+    const recordedSuffix = expDateStr !== createdDateStr
+      ? ` _(recorded ${fmtDate(e.createdAt)})_`
+      : '';
+
+    return `#${i + 1}. ${e.payerName} paid *${fmt(e.amount, e.currency)}* for ${desc} • ${expDate}${editedFlag}${recordedSuffix}\n   Split: ${splitNames}`;
   });
 
-  const hint = `\n_edit #N split/amount/payer — remove #N_`;
+  const hint = `\n_edit #N split/amount/payer/date — remove #N — history #N_`;
   return `📋 *All Expenses* (${expenses.length} total)\n\n${lines.join('\n\n')}\n\n*Total: ${fmt(total, currency)}*${hint}`;
 }
 
@@ -118,6 +127,8 @@ I silently track expenses from your group conversation.
 • \`edit #N amount 350\` — Correct the amount of expense #N
 • \`edit #N payer Supriya\` — Change who paid for expense #N
 • \`edit #N remove Priya\` — Remove Priya from expense #N split
+• \`edit #N date 1 Apr\` — Correct when the expense actually happened
+• \`history #N\` — See full change history for expense #N
 • \`settle <name> <amount>\` — Record a payment
 • \`help\` — Show this message
 
@@ -126,6 +137,91 @@ Examples:
 • "Paid ₹2400 for the Airbnb"
 • "Ravi and I split a cab — ₹600"
 • "Actually split the cab between me and Supriya"`;
+}
+
+// ─── Rich Edit Confirmations ─────────────────────────────────────────────────
+
+export function renderSplitChanged(
+  desc: string, position: number, actorName: string,
+  before: string[], after: string[], amount: number, currency: string
+): string {
+  const shareAfter = after.length > 0 ? fmt(amount / after.length, currency) : '—';
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\nSplit changed:\n  Before: ${before.join(', ')}\n  After: ${after.join(', ')} (${shareAfter} each)`;
+}
+
+export function renderAmountChanged(
+  desc: string, position: number, actorName: string,
+  oldAmount: number, newAmount: number, currency: string
+): string {
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\nAmount: ${fmt(oldAmount, currency)} → *${fmt(newAmount, currency)}*`;
+}
+
+export function renderPayerChanged(
+  desc: string, position: number, actorName: string,
+  oldPayer: string, newPayer: string
+): string {
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\nPayer: ${oldPayer} → *${newPayer}*`;
+}
+
+export function renderPersonRemoved(
+  desc: string, position: number, actorName: string,
+  removedName: string, before: string[], after: string[], amount: number, currency: string
+): string {
+  const shareAfter = after.length > 0 ? fmt(amount / after.length, currency) : '—';
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\n${removedName} removed from split\n  Before: ${before.join(', ')}\n  After: ${after.length > 0 ? `${after.join(', ')} (${shareAfter} each)` : 'nobody'}`;
+}
+
+export function renderDateChanged(
+  desc: string, position: number, actorName: string,
+  oldDate: Date, newDate: Date
+): string {
+  return `✏️ *${actorName}* updated expense #${position} — ${desc}\n\nExpense date: ${fmtDate(oldDate)} → *${fmtDate(newDate)}*`;
+}
+
+// ─── Expense History ──────────────────────────────────────────────────────────
+
+export function renderExpenseHistory(
+  expense: Expense,
+  position: number,
+  events: ExpenseEvent[]
+): string {
+  if (events.length === 0) {
+    return `📜 No history found for expense #${position}.`;
+  }
+
+  const desc = expense.description ?? expense.category ?? 'expense';
+  const header = `📜 *History — #${position} ${desc}* (${fmt(expense.amount, expense.currency)})`;
+
+  const dateLine = expense.expenseDate.toDateString() !== expense.createdAt.toDateString()
+    ? `Expense date: ${fmtDate(expense.expenseDate)} • Recorded: ${fmtDate(expense.createdAt)}`
+    : `Date: ${fmtDate(expense.expenseDate)}`;
+
+  const lines = events.map((ev) => {
+    const time = ev.createdAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const dateStr = fmtDate(ev.createdAt);
+    const p = ev.payload;
+
+    switch (ev.eventType) {
+      case 'created':
+        return `✅ *Created* by ${ev.actorName} • ${dateStr} ${time}\n   ${p['payer'] ?? ''} paid ${p['amount'] != null ? fmt(p['amount'] as number, p['currency'] as string ?? expense.currency) : ''}\n   Split: ${(p['split'] as string[] | undefined)?.join(', ') ?? ''}`;
+      case 'amount_updated':
+        return `✏️ *Amount* changed by ${ev.actorName} • ${dateStr} ${time}\n   ${fmt(p['before'] as number, expense.currency)} → ${fmt(p['after'] as number, expense.currency)}`;
+      case 'split_changed':
+        return `✏️ *Split* changed by ${ev.actorName} • ${dateStr} ${time}\n   ${(p['before'] as string[]).join(', ')} → ${(p['after'] as string[]).join(', ')}`;
+      case 'payer_changed':
+        return `✏️ *Payer* changed by ${ev.actorName} • ${dateStr} ${time}\n   ${p['before']} → ${p['after']}`;
+      case 'person_removed':
+        return `✏️ *${p['removed']}* removed from split by ${ev.actorName} • ${dateStr} ${time}`;
+      case 'date_updated':
+        return `✏️ *Date* changed by ${ev.actorName} • ${dateStr} ${time}\n   ${p['before']} → ${p['after']}`;
+      case 'deleted':
+        return `🗑️ *Deleted* by ${ev.actorName} • ${dateStr} ${time}`;
+      default:
+        return `• ${ev.eventType} by ${ev.actorName} • ${dateStr} ${time}`;
+    }
+  });
+
+  return `${header}\n${dateLine}\n\n${lines.join('\n\n')}`;
 }
 
 // ─── Welcome ──────────────────────────────────────────────────────────────────

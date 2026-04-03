@@ -46,10 +46,13 @@ function buildExpensePrompt(
     }
   }
 
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
   const systemPrompt = `You are an expense parser for a group chat. Extract expense information from messages.
 
 Group members: ${memberNames}
 Default currency: INR (Indian Rupees)
+Today's date: ${today} (use this to resolve relative dates like "yesterday", "last Tuesday", "last night")
 The group speaks English, Hindi, and Hinglish.
 
 Rules:
