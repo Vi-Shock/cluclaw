@@ -136,7 +136,7 @@ export function normalizeWhatsAppMessage(raw: any): GroupMessage | null {
   const pushName = (raw.pushName as string | undefined) ?? '';
   const senderId = fromMe
     ? (raw.participant ?? key.remoteJid) as string
-    : (key.participant ?? raw.participant ?? senderId) as string;
+    : ((key.participant ?? raw.participant ?? key.remoteJid) as string);
 
   // Extract the actual message content
   const msg = raw.message ?? {};
