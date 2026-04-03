@@ -70,7 +70,7 @@ export function renderDetails(expenses: Expense[]): string {
     return `#${i + 1}. ${e.payerName} paid *${fmt(e.amount, e.currency)}* for ${desc} • ${expDate}${editedFlag}${recordedSuffix}\n   Split: ${splitNames}`;
   });
 
-  const hint = `\n_edit #N split/amount/payer/date — remove #N — history #N_`;
+  const hint = `\n_edit #N split/add/remove/amount/payer/date/description — remove #N — history #N_`;
   return `📋 *All Expenses* (${expenses.length} total)\n\n${lines.join('\n\n')}\n\n*Total: ${fmt(total, currency)}*${hint}`;
 }
 

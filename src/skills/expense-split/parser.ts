@@ -158,8 +158,17 @@ For corrections, extract:
 - add_person: name of person to add to the split for add_person
 - new_description: new name/description for change_description
 
-For unequal splits: "Ravi owes 200, Priya owes 150" → change_split + new_split_amounts={Ravi:200, Priya:150}
-For percentage splits: "split 60/40 between me and Ravi" → change_split + new_split_amounts={sender:60, Ravi:40}
+Examples:
+- "Add Supriya to split for #3" → correction_type=add_person, add_person="Supriya", expense_position=3
+- "add Ravi to the cab" → correction_type=add_person, add_person="Ravi", expense_description="cab"
+- "Priya should also be in the dinner split" → correction_type=add_person, add_person="Priya", expense_description="dinner"
+- "remove Ravi from #2" → correction_type=remove_person, remove_person="Ravi", expense_position=2
+- "Ravi owes 200, Priya owes 150" → correction_type=change_split, new_split_amounts={Ravi:200, Priya:150}
+- "split 60/40 between me and Ravi" → correction_type=change_split, new_split_amounts={sender:60, Ravi:40}
+- "rename the hotel to Airbnb" → correction_type=change_description, new_description="Airbnb", expense_description="hotel"
+
+IMPORTANT: Use add_person (not change_split) when someone is being ADDED to an existing split.
+Use change_split only when the entire split list is being replaced.
 
 Return is_correction=false if the message is NOT a correction.`;
 

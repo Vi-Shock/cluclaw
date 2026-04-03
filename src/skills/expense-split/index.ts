@@ -191,6 +191,18 @@ const expenseSkill: Skill = {
             if (splitMembers.length === 0) return { text: '❌ Couldn\'t resolve any of the named members.' };
             const beforeSplit = result.expense.splits.map((s) => s.memberName);
             const afterSplit = splitMembers.map((m) => m.displayName);
+
+            // Safety net: if LLM said change_split but only named 1 person not already in the split,
+            // treat it as add_person so we don't accidentally replace the whole split.
+            if (splitMembers.length === 1 && !beforeSplit.includes(splitMembers[0].displayName)) {
+              const personToAdd = splitMembers[0];
+              const addedOk = addPersonToSplit(db, result.expense.id, personToAdd);
+              if (!addedOk) return { text: `ℹ️ ${personToAdd.displayName} is already in the split.` };
+              const afterAdd = [...beforeSplit, personToAdd.displayName];
+              logExpenseEvent(db, result.expense.id, message.groupId, message.sender.name, 'person_added', { added: personToAdd.displayName, before: beforeSplit, after: afterAdd });
+              const expDescAdd = result.expense.description ?? result.expense.category ?? 'expense';
+              return { text: renderPersonAdded(expDescAdd, result.position, message.sender.name, personToAdd.displayName, beforeSplit, afterAdd, result.expense.amount, result.expense.currency) };
+            }
             // Resolve new_split_amounts by memberId for unequal splits
             let splitAmountsById: Record<string, number> | undefined;
             if (correction.new_split_amounts && Object.keys(correction.new_split_amounts).length > 0) {
