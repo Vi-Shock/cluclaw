@@ -1,0 +1,43 @@
+{
+  "name": "cluclaw",
+  "version": "0.1.0",
+  "description": "AI agent for group chats — passively tracks expenses, action items, and more",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "node --test --require tsx/cjs src/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0",
+    "@ai-sdk/groq": "^1.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "ai": "^4.0.0",
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.0.0",
+    "grammy": "^1.0.0",
+    "groq-sdk": "^0.7.0",
+    "openai": "^4.0.0",
+    "zod": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["whatsapp", "telegram", "ai", "agent", "expense", "group-chat"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cluclaw/cluclaw.git"
+  }
+}
