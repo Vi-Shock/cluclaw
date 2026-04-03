@@ -71,7 +71,11 @@ function resolveExpenseTarget(
   if (description) {
     const matches = findExpensesByDescription(db, groupId, description);
     if (matches.length === 0) return null;
-    if (matches.length === 1) return { expense: matches[0], position: -1 };
+    if (matches.length === 1) {
+      const all = getExpenses(db, groupId, 100);
+      const pos = all.findIndex((e) => e.id === matches[0].id) + 1;
+      return { expense: matches[0], position: pos > 0 ? pos : 1 };
+    }
     return { ambiguous: matches };
   }
 
