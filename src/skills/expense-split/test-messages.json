@@ -1,0 +1,160 @@
+{
+  "description": "Test message bank for expense-split skill — edge cases and examples",
+  "groups": {
+    "true_positives": [
+      {
+        "message": "Paid ₹2400 for the Airbnb",
+        "sender": "Vishak",
+        "expected": { "is_expense": true, "amount": 2400, "currency": "INR", "payer": "Vishak", "category": "accommodation" }
+      },
+      {
+        "message": "Lunch was ₹1600, I got it",
+        "sender": "Ravi",
+        "expected": { "is_expense": true, "amount": 1600, "currency": "INR", "payer": "Ravi", "split_among": "all" }
+      },
+      {
+        "message": "Ravi and I split a cab from airport ₹600",
+        "sender": "Priya",
+        "expected": { "is_expense": true, "amount": 600, "split_among": ["Priya", "Ravi"], "category": "transport" }
+      },
+      {
+        "message": "Beers on me tonight 🍺 ₹900",
+        "sender": "Deepa",
+        "expected": { "is_expense": true, "amount": 900, "currency": "INR", "payer": "Deepa", "category": "drinks" }
+      },
+      {
+        "message": "Maine 200 diye petrol ke liye",
+        "sender": "Ravi",
+        "expected": { "is_expense": true, "amount": 200, "currency": "INR", "payer": "Ravi", "category": "fuel" },
+        "language": "hinglish",
+        "note": "I paid 200 for petrol"
+      },
+      {
+        "message": "Hotel cost $120 for the night",
+        "sender": "Vishak",
+        "expected": { "is_expense": true, "amount": 120, "currency": "USD", "category": "accommodation" }
+      },
+      {
+        "message": "I paid for Ravi's ticket too, ₹500 each",
+        "sender": "Priya",
+        "expected": { "is_expense": true, "amount": 1000, "payer": "Priya", "split_among": ["Priya", "Ravi"] }
+      },
+      {
+        "message": "spent 3200 at Martin's Corner, I got it",
+        "sender": "Ravi",
+        "expected": { "is_expense": true, "amount": 3200, "currency": "INR", "payer": "Ravi" }
+      },
+      {
+        "message": "Groceries for the house ₹850",
+        "sender": "Deepa",
+        "expected": { "is_expense": true, "amount": 850, "currency": "INR", "category": "shopping" }
+      },
+      {
+        "message": "sabne petrol dala, total 450 hua",
+        "sender": "Ravi",
+        "expected": { "is_expense": true, "amount": 450, "currency": "INR", "category": "fuel" },
+        "language": "hinglish",
+        "note": "Everyone put in petrol, total was 450"
+      },
+      {
+        "message": "paid three hundred for petrol",
+        "sender": "Vishak",
+        "expected": { "is_expense": true, "amount": 300, "currency": "INR", "category": "fuel" },
+        "note": "Voice note transcription — amount as words"
+      },
+      {
+        "message": "Chai and samosas ₹120 for the group",
+        "sender": "Priya",
+        "expected": { "is_expense": true, "amount": 120, "currency": "INR", "category": "food" }
+      },
+      {
+        "message": "18000 for the Airbnb, 3 nights",
+        "sender": "Vishak",
+        "expected": { "is_expense": true, "amount": 18000, "currency": "INR", "category": "accommodation" }
+      }
+    ],
+    "false_positives": [
+      {
+        "message": "I have 500 reasons to be happy 😄",
+        "sender": "Vishak",
+        "expected": { "is_expense": false },
+        "note": "Expression with number"
+      },
+      {
+        "message": "We need to pay ₹5000 for the venue by Friday",
+        "sender": "Ravi",
+        "expected": { "is_expense": false },
+        "note": "Future payment, not yet paid"
+      },
+      {
+        "message": "₹500 is way too expensive for biryani",
+        "sender": "Priya",
+        "expected": { "is_expense": false },
+        "note": "Complaining about price, not paying"
+      },
+      {
+        "message": "How much did the cab cost? Approx ₹400?",
+        "sender": "Deepa",
+        "expected": { "is_expense": false },
+        "note": "Question about price, not a payment"
+      },
+      {
+        "message": "ok see you at 7",
+        "sender": "Ravi",
+        "expected": { "is_expense": false }
+      },
+      {
+        "message": "hahaha 😂",
+        "sender": "Vishak",
+        "expected": { "is_expense": false }
+      },
+      {
+        "message": "Lets meet at 5pm",
+        "sender": "Priya",
+        "expected": { "is_expense": false },
+        "note": "Time reference, not expense"
+      },
+      {
+        "message": "the score is 2-1!",
+        "sender": "Ravi",
+        "expected": { "is_expense": false },
+        "note": "Sports score with numbers"
+      }
+    ],
+    "corrections": [
+      {
+        "message": "actually that dinner was 1800 not 1600",
+        "sender": "Ravi",
+        "expected_correction": { "is_correction": true, "correction_type": "update_amount", "new_amount": 1800 }
+      },
+      {
+        "message": "remove last expense",
+        "sender": "Vishak",
+        "expected_correction": { "is_correction": true, "correction_type": "remove_last" }
+      },
+      {
+        "message": "undo",
+        "sender": "Priya",
+        "expected_correction": { "is_correction": true, "correction_type": "remove_last" }
+      },
+      {
+        "message": "wait, Priya wasn't at lunch",
+        "sender": "Vishak",
+        "expected_correction": { "is_correction": true, "correction_type": "remove_person" }
+      }
+    ],
+    "ambiguous_should_clarify": [
+      {
+        "message": "Lunch was ₹1600",
+        "sender": "Ravi",
+        "note": "Missing 'I got it' — unclear if Ravi paid or is reporting cost",
+        "expected": { "needs_clarification": true }
+      },
+      {
+        "message": "₹3000 for the villa",
+        "sender": "Vishak",
+        "note": "Per person or total? Should clarify"
+      }
+    ]
+  }
+}
