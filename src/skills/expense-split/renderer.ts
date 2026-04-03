@@ -36,6 +36,16 @@ export function renderSplitsSummary(
 
 // ─── Detailed Expense List ────────────────────────────────────────────────────
 
+function fmtDate(date: Date): string {
+  const now = new Date();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = date.getDate();
+  const month = months[date.getMonth()];
+  const year = date.getFullYear();
+  // Include year only if different from current year
+  return year !== now.getFullYear() ? `${day} ${month} ${year}` : `${day} ${month}`;
+}
+
 export function renderDetails(expenses: Expense[]): string {
   if (expenses.length === 0) {
     return '📋 No expenses recorded yet.';
@@ -47,10 +57,12 @@ export function renderDetails(expenses: Expense[]): string {
   const lines = expenses.map((e, i) => {
     const desc = e.description ?? e.category ?? 'expense';
     const splitNames = e.splits.map((s) => s.memberName).join(', ');
-    return `${i + 1}. ${e.payerName} paid *${fmt(e.amount, e.currency)}* for ${desc}\n   Split: ${splitNames}`;
+    const date = fmtDate(e.createdAt);
+    return `#${i + 1}. ${e.payerName} paid *${fmt(e.amount, e.currency)}* for ${desc} • ${date}\n   Split: ${splitNames}`;
   });
 
-  return `📋 *All Expenses* (${expenses.length} total)\n\n${lines.join('\n\n')}\n\n*Total: ${fmt(total, currency)}*`;
+  const hint = `\n_edit #N split/amount/payer — remove #N_`;
+  return `📋 *All Expenses* (${expenses.length} total)\n\n${lines.join('\n\n')}\n\n*Total: ${fmt(total, currency)}*${hint}`;
 }
 
 // ─── Expense Confirmation ─────────────────────────────────────────────────────
@@ -99,8 +111,13 @@ I silently track expenses from your group conversation.
 
 *Commands:*
 • \`splits\` — Show who owes what (simplified)
-• \`details\` — List all recorded expenses
-• \`remove last\` — Delete the last expense
+• \`details\` — List all recorded expenses with IDs
+• \`remove #N\` — Delete expense #N
+• \`remove last\` — Delete the most recent expense
+• \`edit #N split Ravi, Priya\` — Change who shares expense #N
+• \`edit #N amount 350\` — Correct the amount of expense #N
+• \`edit #N payer Supriya\` — Change who paid for expense #N
+• \`edit #N remove Priya\` — Remove Priya from expense #N split
 • \`settle <name> <amount>\` — Record a payment
 • \`help\` — Show this message
 
@@ -108,7 +125,7 @@ I silently track expenses from your group conversation.
 Examples:
 • "Paid ₹2400 for the Airbnb"
 • "Ravi and I split a cab — ₹600"
-• "Maine 200 diye petrol ke liye"`;
+• "Actually split the cab between me and Supriya"`;
 }
 
 // ─── Welcome ──────────────────────────────────────────────────────────────────

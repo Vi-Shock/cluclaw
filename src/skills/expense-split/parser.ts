@@ -21,7 +21,7 @@ export function shouldParseAsExpense(text: string): boolean {
 
 // Correction signals
 const CORRECTION_REGEX =
-  /\b(?:actually|wait|no it was|change|update|remove last|undo|delete|wasn'?t there|wasn'?t at|modify|edit)\b/i;
+  /\b(?:actually|wait|no it was|change|update|remove last|undo|delete|wasn'?t there|wasn'?t at|modify|edit|split .{1,30} between|add .{1,20} to|remove .{1,20} from|#\d+)\b/i;
 
 export function looksLikeCorrection(text: string): boolean {
   return CORRECTION_REGEX.test(text);
@@ -139,7 +139,16 @@ export async function parseCorrection(
 
   const systemPrompt = `You are analyzing a group chat message to detect if it corrects a previously recorded expense.
 
-Correction signals: "actually", "wait", "no it was", "change", "update", "remove last", "undo", "delete", "wasn't there", "wasn't at".
+Correction signals: "actually", "wait", "no it was", "change", "update", "remove last", "undo", "delete", "wasn't there", "wasn't at", "split X between", "add X to", "remove X from", "#N" references.
+
+For corrections, extract:
+- correction_type: update_amount | remove_last | change_split | change_payer | add_person | remove_person
+- expense_position: numeric position (#N) if the user references a specific expense number
+- expense_description: keyword identifying WHICH expense (e.g. "cab", "dinner", "hotel") — do NOT set this to the full sentence
+- new_amount: corrected amount for update_amount
+- new_split_among: new list of people for change_split (include the payer if they share it)
+- new_payer: new payer name for change_payer
+- remove_person: name of person to remove for remove_person
 
 Return is_correction=false if the message is NOT a correction.`;
 

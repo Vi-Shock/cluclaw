@@ -45,10 +45,12 @@ export const CorrectionRequestSchema = z.object({
   correction_type: z
     .enum(['update_amount', 'remove_last', 'change_split', 'change_payer', 'add_person', 'remove_person'])
     .optional(),
-  expense_description: z.string().optional().describe('Which expense to correct (from context)'),
+  expense_position: z.number().int().positive().optional().describe('The #N position of the target expense (e.g. 2 from "edit #2")'),
+  expense_description: z.string().optional().describe('Description keyword to identify which expense to correct (e.g. "cab", "dinner")'),
   new_amount: z.number().positive().optional(),
-  new_split_among: z.array(z.string()).optional(),
-  new_payer: z.string().optional(),
+  new_split_among: z.array(z.string()).optional().describe('New list of people who should share the expense'),
+  new_payer: z.string().optional().describe('New name of the person who paid'),
+  remove_person: z.string().optional().describe('Name of the person to remove from the expense split'),
   confidence: z.number().min(0).max(1).default(0.5),
 });
 

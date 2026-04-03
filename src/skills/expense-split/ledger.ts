@@ -219,6 +219,175 @@ export function addSettlement(
   `).run(randomUUID(), groupId, fromMemberId, toMemberId, amount, currency);
 }
 
+// ─── Targeted Lookup ─────────────────────────────────────────────────────────
+
+/**
+ * Returns the expense at 1-based position N in the chronological list.
+ * Position 1 = oldest, which matches what renderDetails() shows.
+ */
+export function getExpenseByPosition(
+  db: Database.Database,
+  groupId: string,
+  position: number
+): Expense | null {
+  const row = db.prepare(`
+    SELECT e.*, m.display_name AS payer_name
+    FROM expenses e
+    JOIN members m ON e.payer_id = m.id
+    WHERE e.group_id = ? AND e.deleted_at IS NULL
+    ORDER BY e.created_at DESC
+    LIMIT 1 OFFSET ?
+  `).get(groupId, position - 1) as ExpenseRowFull | undefined;
+
+  if (!row) return null;
+
+  const splits = db.prepare(`
+    SELECT es.*, m.display_name AS member_name
+    FROM expense_splits es
+    JOIN members m ON es.member_id = m.id
+    WHERE es.expense_id = ?
+  `).all(row.id) as SplitRowFull[];
+
+  return {
+    id: row.id,
+    groupId: row.group_id,
+    payerId: row.payer_id,
+    payerName: row.payer_name,
+    amount: row.amount,
+    currency: row.currency,
+    description: row.description ?? undefined,
+    category: row.category ?? undefined,
+    splitType: row.split_type as 'equal' | 'exact' | 'percentage',
+    splits: splits.map((s) => ({ memberId: s.member_id, memberName: s.member_name, shareAmount: s.share_amount })),
+    sourceMessageId: row.source_message_id ?? undefined,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+/**
+ * Returns all expenses whose description or category contains the query string.
+ * Multiple results mean the caller should ask for clarification.
+ */
+export function findExpensesByDescription(
+  db: Database.Database,
+  groupId: string,
+  query: string
+): Expense[] {
+  const pattern = `%${query.toLowerCase()}%`;
+  const rows = db.prepare(`
+    SELECT e.*, m.display_name AS payer_name
+    FROM expenses e
+    JOIN members m ON e.payer_id = m.id
+    WHERE e.group_id = ? AND e.deleted_at IS NULL
+      AND (LOWER(COALESCE(e.description,'')) LIKE ? OR LOWER(COALESCE(e.category,'')) LIKE ?)
+    ORDER BY e.created_at DESC
+  `).all(groupId, pattern, pattern) as ExpenseRowFull[];
+
+  return rows.map((row) => {
+    const splits = db.prepare(`
+      SELECT es.*, m.display_name AS member_name
+      FROM expense_splits es
+      JOIN members m ON es.member_id = m.id
+      WHERE es.expense_id = ?
+    `).all(row.id) as SplitRowFull[];
+
+    return {
+      id: row.id,
+      groupId: row.group_id,
+      payerId: row.payer_id,
+      payerName: row.payer_name,
+      amount: row.amount,
+      currency: row.currency,
+      description: row.description ?? undefined,
+      category: row.category ?? undefined,
+      splitType: row.split_type as 'equal' | 'exact' | 'percentage',
+      splits: splits.map((s) => ({ memberId: s.member_id, memberName: s.member_name, shareAmount: s.share_amount })),
+      sourceMessageId: row.source_message_id ?? undefined,
+      createdAt: new Date(row.created_at),
+    };
+  });
+}
+
+/**
+ * Replaces the split members for an expense with a new equal-share distribution.
+ */
+export function updateExpenseSplit(
+  db: Database.Database,
+  expenseId: string,
+  splitMembers: Member[]
+): boolean {
+  if (splitMembers.length === 0) return false;
+
+  const expense = db.prepare(
+    'SELECT amount FROM expenses WHERE id = ? AND deleted_at IS NULL'
+  ).get(expenseId) as { amount: number } | undefined;
+
+  if (!expense) return false;
+
+  const shareAmount = expense.amount / splitMembers.length;
+
+  db.prepare('DELETE FROM expense_splits WHERE expense_id = ?').run(expenseId);
+
+  for (const member of splitMembers) {
+    db.prepare(`
+      INSERT INTO expense_splits (id, expense_id, member_id, share_amount)
+      VALUES (?, ?, ?, ?)
+    `).run(randomUUID(), expenseId, member.id, shareAmount);
+  }
+
+  db.prepare(`UPDATE expenses SET updated_at = datetime('now') WHERE id = ?`).run(expenseId);
+  return true;
+}
+
+/**
+ * Changes the payer for an existing expense.
+ */
+export function updateExpensePayer(
+  db: Database.Database,
+  expenseId: string,
+  newPayerId: string
+): boolean {
+  const result = db.prepare(`
+    UPDATE expenses SET payer_id = ?, updated_at = datetime('now')
+    WHERE id = ? AND deleted_at IS NULL
+  `).run(newPayerId, expenseId);
+  return result.changes > 0;
+}
+
+/**
+ * Removes one person from the split and recalculates equal shares for the rest.
+ */
+export function removePersonFromSplit(
+  db: Database.Database,
+  expenseId: string,
+  memberId: string
+): boolean {
+  const expense = db.prepare(
+    'SELECT amount FROM expenses WHERE id = ? AND deleted_at IS NULL'
+  ).get(expenseId) as { amount: number } | undefined;
+
+  if (!expense) return false;
+
+  db.prepare(
+    'DELETE FROM expense_splits WHERE expense_id = ? AND member_id = ?'
+  ).run(expenseId, memberId);
+
+  // Recalculate shares for remaining members
+  const remaining = db.prepare(
+    'SELECT id FROM expense_splits WHERE expense_id = ?'
+  ).all(expenseId) as Array<{ id: string }>;
+
+  if (remaining.length === 0) return true; // edge case: no one left
+
+  const newShare = expense.amount / remaining.length;
+  for (const row of remaining) {
+    db.prepare('UPDATE expense_splits SET share_amount = ? WHERE id = ?').run(newShare, row.id);
+  }
+
+  db.prepare(`UPDATE expenses SET updated_at = datetime('now') WHERE id = ?`).run(expenseId);
+  return true;
+}
+
 // ─── Balance Calculation ──────────────────────────────────────────────────────
 
 interface NetBalance {
