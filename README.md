@@ -258,15 +258,17 @@ See [`src/skills/expense-split/`](src/skills/expense-split/) for a complete refe
 | `edit #N payer Supriya` | — | Change who paid |
 | `edit #N date 1 Apr` | — | Correct when the expense happened |
 | `edit #N description Dinner at Martin's` | — | Rename the expense |
-| `settle <name> <amount>` | — | Record a payment between members |
+| `settle <name> <amount>` | — | Record a payment between members (e.g. `settle Ravi 500`) |
 | `help` | — | Show all commands |
 
 All commands work with or without a `/` prefix (`splits` or `/splits`).
 
-**Natural language editing also works** — just chat normally:
+**Natural language also works** — just chat normally:
 - *"Actually add Ravi to the cab"* → adds Ravi, recalculates shares
+- *"Remove Supriya from the hotel"* → removes Supriya, recalculates shares
 - *"Rename the hotel to Airbnb"* → updates the description
 - *"Ravi owes 200 and Priya owes 150 for dinner"* → records with unequal shares
+- *"Supriya paid Vishak 500"* → records a settlement payment
 
 ---
 
@@ -284,6 +286,7 @@ All commands work with or without a `/` prefix (`splits` or `/splits`).
 - [x] Add / remove people from a split post-creation
 - [x] Unequal splits — exact amounts and percentages, NL + command
 - [x] Description editing via command and natural language
+- [x] Natural language settlement detection ("Supriya paid Vishak 500")
 - [x] Voice note support (STT — Groq / OpenAI / local whisper.cpp)
 - [x] Receipt photo scanning (Vision — any vision-capable model)
 - [x] SQLite FTS5 message history search

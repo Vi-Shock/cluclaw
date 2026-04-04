@@ -310,7 +310,7 @@ All 7 MVP phases are shipped, plus a full post-MVP feature pass on the expense-s
 - Debt simplification algorithm (minimises transaction count)
 - Auto-registration of unknown members as placeholders (expenses never lost)
 - Expense targeting by `#N` position (DESC order — newest = #1, matches `details` display)
-- `resolveExpenseTarget()` — position → description fuzzy match → most recent fallback
+- `resolveExpenseTarget()` — position → description fuzzy match → most recent fallback; resolves actual `#N` even for description-based matches
 - Dual timestamps: `expense_date` (when money changed hands) vs `created_at` (when recorded)
 - LLM resolves relative dates ("yesterday", "last Tuesday") into YYYY-MM-DD
 - Append-only `expense_events` audit log; `history #N` shows full change timeline per expense
@@ -318,6 +318,9 @@ All 7 MVP phases are shipped, plus a full post-MVP feature pass on the expense-s
 - `✏️` indicator on edited expenses in `details` list
 - Edit ops (command + NL): split members, add person, remove person, amount, payer, date, description
 - Unequal splits: exact amounts (`Ravi:200, Priya:150`) and percentages (`Ravi:60%, Priya:40%`)
+- **Regex fast-path for NL corrections** (no LLM): `"remove X from Y"`, `"add X to Y"`, `"X wasn't there"` — deterministic, always works
+- **NL settlement detection**: `"Supriya paid Vishak 500"` → `addSettlement()` (checks if named person is a member; falls through to expense LLM if not)
+- `remove`/`edit`/`history` commands return `null` when args don't match structured format, letting the NL correction path handle free-form English
 
 Next priorities:
 1. Action Tracker skill (extracts commitments + deadlines, scheduler-driven reminders)
