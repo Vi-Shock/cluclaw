@@ -99,6 +99,49 @@ function renderAmbiguous(matches: Expense[], db: import('better-sqlite3').Databa
   return `🤔 Found multiple matching expenses — which one?\n\n${lines.join('\n')}\n\nUse \`edit #N ...\` to target a specific one.`;
 }
 
+/**
+ * Tries to detect a peer-to-peer settlement ("X paid Y amount" or "paid Y amount").
+ * Checks that the recipient resolves to a known group member so we don't confuse
+ * "Ravi paid 500 for dinner" (expense) with "Ravi paid Priya 500" (settlement).
+ */
+function tryParseSettlement(
+  text: string,
+  senderName: string,
+  members: import('../../types.js').Member[]
+): { fromId: string; fromName: string; toId: string; toName: string; amount: number } | null {
+  // Extract a numeric amount anywhere in the message
+  const amountMatch = /₹\s*(\d+(?:\.\d+)?)/i.exec(text)
+    ?? /(\d+(?:\.\d+)?)\s*(?:₹|rs\.?|rupees?)?\s*$/i.exec(text);
+  if (!amountMatch) return null;
+  const amount = parseFloat(amountMatch[1]);
+  if (isNaN(amount) || amount <= 0) return null;
+
+  // Check if any member name appears right after "paid" (→ that member is the recipient)
+  for (const toMember of members) {
+    const variants = [toMember.displayName, ...toMember.aliases];
+    for (const name of variants) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (!new RegExp(`\\bpaid\\s+${escaped}\\b`, 'i').test(text)) continue;
+
+      // Recipient found — now resolve payer
+      const beforePaid = /^(.+?)\s+paid\b/i.exec(text);
+      let fromMember: import('../../types.js').Member | undefined;
+      if (beforePaid) {
+        const fromName = beforePaid[1].trim();
+        fromMember = /^(i|me)$/i.test(fromName)
+          ? resolveMemberName(senderName, members)
+          : resolveMemberName(fromName, members);
+      } else {
+        fromMember = resolveMemberName(senderName, members);
+      }
+
+      if (!fromMember || fromMember.id === toMember.id) continue;
+      return { fromId: fromMember.id, fromName: fromMember.displayName, toId: toMember.id, toName: toMember.displayName, amount };
+    }
+  }
+  return null;
+}
+
 /** Parses human date strings into YYYY-MM-DD. Returns null if unrecognised. */
 function parseDateInput(input: string): string | null {
   const s = input.trim().toLowerCase();
@@ -288,7 +331,16 @@ const expenseSkill: Skill = {
       }
     }
 
-    // 2. Try parsing as a new expense
+    // 2. Fast-path settlement detection: "X paid Y amount" where Y is a known member
+    const settlement = tryParseSettlement(text, message.sender.name, context.members);
+    if (settlement) {
+      const db2 = getGroupDb(message.groupId);
+      addSettlement(db2, message.groupId, settlement.fromId, settlement.toId, settlement.amount);
+      logger.info(`Settlement recorded: ${settlement.fromName} paid ${settlement.toName} ₹${settlement.amount}`);
+      return { text: `✅ Recorded: ${settlement.fromName} paid *${settlement.toName}* ₹${settlement.amount}` };
+    }
+
+    // 3. Try parsing as a new expense
     const extraction = await parseExpense(message, context.members, context, expenseSkill.skillMd);
     if (!extraction) return null;
 
@@ -561,17 +613,17 @@ const expenseSkill: Skill = {
         return { text: `❌ Couldn't find member "${name}" in this group.` };
       }
 
-      const fromMember = context.members.find(
-        (m) => m.platformUserId === context.groupId || m.displayName === 'You'
-      ) ?? context.members[0];
-
-      if (!fromMember) return { text: '❌ Could not identify who is settling.' };
+      // settle command is always "I am settling with <name>" — look up sender from history
+      const lastMsg = context.history[context.history.length - 1];
+      const senderName = lastMsg?.sender.name;
+      const fromMember = senderName ? resolveMemberName(senderName, context.members) : undefined;
+      if (!fromMember) return { text: '❌ Could not identify who is settling. Try: `settle <name> <amount>`' };
 
       const db = getGroupDb(context.groupId);
       addSettlement(db, context.groupId, fromMember.id, toMember.id, amount);
 
       return {
-        text: `✅ Recorded: paid ${toMember.displayName} ₹${amount}`,
+        text: `✅ Recorded: ${fromMember.displayName} paid *${toMember.displayName}* ₹${amount}`,
       };
     },
   },
