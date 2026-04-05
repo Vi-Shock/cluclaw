@@ -218,6 +218,14 @@ const expenseSkill: Skill = {
             return { text: '❌ No expense to remove.' };
           }
 
+          case 'delete_expense': {
+            const result = resolveExpenseTarget(db, message.groupId, correction.expense_position, correction.expense_description);
+            if (!result) return { text: '❌ Couldn\'t find that expense. Type `details` to see all.' };
+            if ('ambiguous' in result) return { text: renderAmbiguous(result.ambiguous, db, message.groupId) };
+            deleteExpense(db, result.expense.id);
+            return { text: renderDeleteConfirmation(result.expense.description ?? null) };
+          }
+
           case 'update_amount': {
             if (!correction.new_amount) break;
             const result = resolveExpenseTarget(db, message.groupId, correction.expense_position, correction.expense_description);

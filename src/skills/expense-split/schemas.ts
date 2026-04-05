@@ -51,7 +51,7 @@ export type ExpenseExtraction = z.infer<typeof ExpenseExtractionSchema>;
 export const CorrectionRequestSchema = z.object({
   is_correction: z.boolean().describe('Whether this message is correcting a previous expense'),
   correction_type: z
-    .enum(['update_amount', 'remove_last', 'change_split', 'change_payer', 'add_person', 'remove_person', 'change_description'])
+    .enum(['update_amount', 'remove_last', 'delete_expense', 'change_split', 'change_payer', 'add_person', 'remove_person', 'change_description'])
     .optional(),
   expense_position: z.number().int().positive().optional().describe('The #N position of the target expense (e.g. 2 from "edit #2")'),
   expense_description: z.string().optional().describe('Description keyword to identify which expense to correct (e.g. "cab", "dinner")'),

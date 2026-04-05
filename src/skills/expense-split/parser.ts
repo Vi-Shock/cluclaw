@@ -74,6 +74,19 @@ export function fastParseCorrection(text: string): Partial<CorrectionRequest> | 
     return { is_correction: true, correction_type: 'remove_person', remove_person, expense_description, expense_position, confidence: 0.85 };
   }
 
+  // "delete/remove [the] <desc> [expense/bill/entry]" or "delete #N"
+  // Must NOT match "remove X from Y" (handled above) or "remove last" (separate command)
+  const deleteExp = /^(?:delete|remove)\s+(?:the\s+)?(.+?)(?:\s+(?:expense|bill|entry|split))?[.!?]*$/i.exec(text.trim());
+  if (deleteExp && !/\bfrom\b/i.test(text) && !/\blast\b/i.test(text)) {
+    const target = deleteExp[1].trim();
+    const posMatch = /^#?(\d+)$/.exec(target);
+    if (posMatch) {
+      return { is_correction: true, correction_type: 'delete_expense', expense_position: parseInt(posMatch[1], 10), confidence: 0.95 };
+    }
+    const expense_description = expense_position ? undefined : (STOPWORDS.has(target.toLowerCase()) ? undefined : target);
+    return { is_correction: true, correction_type: 'delete_expense', expense_description, expense_position, confidence: 0.9 };
+  }
+
   return null;
 }
 
@@ -197,7 +210,7 @@ export async function parseCorrection(
 Correction signals: "actually", "wait", "no it was", "change", "update", "remove last", "undo", "delete", "wasn't there", "wasn't at", "split X between", "add X to", "remove X from", "rename", "#N" references.
 
 For corrections, extract:
-- correction_type: update_amount | remove_last | change_split | change_payer | add_person | remove_person | change_description
+- correction_type: update_amount | remove_last | delete_expense | change_split | change_payer | add_person | remove_person | change_description
 - expense_position: numeric position (#N) if the user references a specific expense number
 - expense_description: keyword identifying WHICH expense (e.g. "cab", "dinner", "hotel") — do NOT set this to the full sentence
 - new_amount: corrected amount for update_amount
@@ -216,6 +229,9 @@ Examples:
 - "Ravi owes 200, Priya owes 150" → correction_type=change_split, new_split_amounts={Ravi:200, Priya:150}
 - "split 60/40 between me and Ravi" → correction_type=change_split, new_split_amounts={sender:60, Ravi:40}
 - "rename the hotel to Airbnb" → correction_type=change_description, new_description="Airbnb", expense_description="hotel"
+- "delete the hotel expense" → correction_type=delete_expense, expense_description="hotel"
+- "remove the cab" → correction_type=delete_expense, expense_description="cab"
+- "delete #2" → correction_type=delete_expense, expense_position=2
 
 IMPORTANT: Use add_person (not change_split) when someone is being ADDED to an existing split.
 Use change_split only when the entire split list is being replaced.
