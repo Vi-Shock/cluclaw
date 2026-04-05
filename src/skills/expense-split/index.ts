@@ -4,6 +4,7 @@ import { logger } from '../../core/logger.js';
 import {
   shouldParseAsExpense,
   looksLikeCorrection,
+  looksLikeDetailsRequest,
   parseExpense,
   parseCorrection,
   fastParseCorrection,
@@ -199,7 +200,7 @@ const expenseSkill: Skill = {
     // Audio could be a voice note about an expense
     if (message.content.media?.type === 'audio') return true;
 
-    return shouldParseAsExpense(text) || looksLikeCorrection(text);
+    return shouldParseAsExpense(text) || looksLikeCorrection(text) || looksLikeDetailsRequest(text);
   },
 
   // ─── Main Handler ─────────────────────────────────────────────────────────
@@ -207,6 +208,13 @@ const expenseSkill: Skill = {
   async handle(message: GroupMessage, context: GroupContext): Promise<SkillResponse | null> {
     const db = getGroupDb(message.groupId);
     const text = message.content.text ?? message.content.media?.caption ?? '';
+
+    // 0. Details request ("expense details", "split details", "show me the expenses", etc.)
+    //    Requires an expense context word alongside "detail(s)" — bare "Details" alone stays silent.
+    if (looksLikeDetailsRequest(text)) {
+      const expenses = getExpenses(db, message.groupId);
+      return { text: renderDetails(expenses) };
+    }
 
     // 1. Check for corrections first
     if (looksLikeCorrection(text)) {
@@ -430,20 +438,6 @@ const expenseSkill: Skill = {
 
     'settle up': async (args: string, context: GroupContext): Promise<SkillResponse | null> => {
       return expenseSkill.commands['splits']!(args, context);
-    },
-
-    details: async (_args: string, context: GroupContext): Promise<SkillResponse | null> => {
-      const db = getGroupDb(context.groupId);
-      const expenses = getExpenses(db, context.groupId);
-      return { text: renderDetails(expenses) };
-    },
-
-    detail: async (args: string, context: GroupContext): Promise<SkillResponse | null> => {
-      return expenseSkill.commands['details']!(args, context);
-    },
-
-    expenses: async (args: string, context: GroupContext): Promise<SkillResponse | null> => {
-      return expenseSkill.commands['details']!(args, context);
     },
 
     help: async (_args: string, _context: GroupContext): Promise<SkillResponse | null> => {

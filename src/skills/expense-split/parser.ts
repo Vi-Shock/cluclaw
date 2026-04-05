@@ -19,6 +19,15 @@ export function shouldParseAsExpense(text: string): boolean {
   return EXPENSE_REGEX.test(text) && NUMBER_REGEX.test(text);
 }
 
+// Details-request detection — "detail(s)" + an expense context word
+const DETAILS_SIGNAL_REGEX = /\bdetails?\b/i;
+const DETAILS_CONTEXT_REGEX =
+  /\b(?:expense|split|spent|paid|owe|owes|balance|settle|bill|trip|kharcha|kharch)\b/i;
+
+export function looksLikeDetailsRequest(text: string): boolean {
+  return DETAILS_SIGNAL_REGEX.test(text) && DETAILS_CONTEXT_REGEX.test(text);
+}
+
 // Correction signals
 const CORRECTION_REGEX =
   /\b(?:actually|wait|no it was|change|update|remove last|remove|undo|delete|erase|cancel|wrong|wasn'?t there|wasn'?t at|modify|edit|rename|describe|split .{1,30} between|add .{1,20} to|remove .{1,20} from|not \d+|hatao|nikalo|#\d+)\b/i;
