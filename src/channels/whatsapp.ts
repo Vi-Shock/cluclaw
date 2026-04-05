@@ -8,6 +8,7 @@ import {
   type proto,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
+import qrcode from 'qrcode-terminal';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
 import { config } from '../core/config.js';
@@ -53,7 +54,7 @@ export function createWhatsAppChannel(
         creds: state.creds,
         keys: makeCacheableSignalKeyStore(state.keys, logger as unknown as Parameters<typeof makeCacheableSignalKeyStore>[1]),
       },
-      printQRInTerminal: true,
+      printQRInTerminal: false,
       syncFullHistory: false,
       markOnlineOnConnect: false, // less suspicious
       getMessage: async () => undefined,
@@ -66,6 +67,7 @@ export function createWhatsAppChannel(
 
       if (qr) {
         logger.info('QR code generated — scan with WhatsApp to connect');
+        qrcode.generate(qr, { small: true });
       }
 
       if (connection === 'open') {
