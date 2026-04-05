@@ -21,7 +21,7 @@ export function shouldParseAsExpense(text: string): boolean {
 
 // Correction signals
 const CORRECTION_REGEX =
-  /\b(?:actually|wait|no it was|change|update|remove last|undo|delete|wasn'?t there|wasn'?t at|modify|edit|rename|describe|split .{1,30} between|add .{1,20} to|remove .{1,20} from|#\d+)\b/i;
+  /\b(?:actually|wait|no it was|change|update|remove last|remove|undo|delete|erase|cancel|wrong|wasn'?t there|wasn'?t at|modify|edit|rename|describe|split .{1,30} between|add .{1,20} to|remove .{1,20} from|not \d+|hatao|nikalo|#\d+)\b/i;
 
 export function looksLikeCorrection(text: string): boolean {
   return CORRECTION_REGEX.test(text);
@@ -76,7 +76,7 @@ export function fastParseCorrection(text: string): Partial<CorrectionRequest> | 
 
   // "delete/remove [the/my] <target> [expense/bill/entry/split]" or "delete #N"
   // Must NOT match "remove X from Y" (handled above)
-  const deleteExp = /^(?:delete|remove)\s+(?:(?:the|my|this|that|an?)\s+)*(.+?)(?:\s+(?:expense|bill|entry|split|transaction))?[.!?]*$/i.exec(text.trim());
+  const deleteExp = /^(?:delete|remove|erase|cancel)\s+(?:(?:the|my|this|that|an?)\s+)*(.+?)(?:\s+(?:expense|bill|entry|split|transaction))?[.!?]*$/i.exec(text.trim());
   if (deleteExp && !/\bfrom\b/i.test(text)) {
     const target = deleteExp[1].trim().toLowerCase();
 
@@ -87,7 +87,7 @@ export function fastParseCorrection(text: string): Partial<CorrectionRequest> | 
     }
 
     // "delete my recent/latest/last/recent expense" → remove_last
-    if (/^(?:recent|latest|last|most recent|newest|new)$/.test(target)) {
+    if (/^(?:recent|latest|last|most recent|newest|new)(?:\s+one)?$/.test(target)) {
       return { is_correction: true, correction_type: 'remove_last', confidence: 0.9 };
     }
 
@@ -255,6 +255,25 @@ Examples:
 - "delete the expense I paid 500" → correction_type=delete_expense, expense_description="500"
 - "delete my recent expense" → correction_type=remove_last
 - "delete my last expense" → correction_type=remove_last
+
+More examples:
+- "erase the cab expense" → correction_type=delete_expense, expense_description="cab"
+- "cancel the hotel entry" → correction_type=delete_expense, expense_description="hotel"
+- "remove the recent one" → correction_type=remove_last
+- "remove the last one" → correction_type=remove_last
+- "that last entry was wrong, remove it" → correction_type=remove_last
+- "get rid of the taxi expense" → correction_type=delete_expense, expense_description="taxi"
+- "it was 300 not 500" → correction_type=update_amount, new_amount=300 (most recent expense)
+- "actually 1800" → correction_type=update_amount, new_amount=1800 (most recent expense)
+- "Priya was there too" → correction_type=add_person, add_person="Priya" (most recent expense)
+- "no wait, I paid" → correction_type=change_payer, new_payer=<sender name>
+- "that's Ravi's expense not mine" → correction_type=change_payer, new_payer="Ravi"
+- "the 500 one" → correction_type=delete_expense, expense_description="500"
+- "woh hotel wala hatao" → correction_type=delete_expense, expense_description="hotel"
+- "last wala delete karo" → correction_type=remove_last
+- "Ravi bhi tha" → correction_type=add_person, add_person="Ravi" (most recent expense)
+- "Maine diya tha, Priya ne nahi" → correction_type=change_payer, new_payer=<sender name>
+- "500 nahi, 300 tha" → correction_type=update_amount, new_amount=300
 
 IMPORTANT: Use add_person (not change_split) when someone is being ADDED to an existing split.
 Use change_split only when the entire split list is being replaced.
