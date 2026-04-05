@@ -221,8 +221,11 @@ export function createWhatsAppChannel(
 
     async stop(): Promise<void> {
       logger.info('Stopping WhatsApp channel...');
+      // Use end() not logout() — logout() revokes the session server-side,
+      // meaning saved creds become invalid and a new QR scan is required on restart.
+      // end() closes the WebSocket gracefully while keeping the session alive.
       try {
-        await sock?.logout();
+        sock?.end(undefined);
       } catch { /* ignore */ }
       sock = null;
       isConnected = false;
