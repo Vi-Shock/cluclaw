@@ -19,6 +19,17 @@ import type { ChannelAdapter } from './types.js';
 
 const AUTH_DIR = join(config.DATA_DIR, 'whatsapp-auth');
 
+// Pino-compatible logger shim for Baileys internals (our logger lacks trace/fatal/child)
+const baileysLogger = {
+  trace: () => {},
+  debug: (...args: unknown[]) => logger.debug(...args),
+  info:  (...args: unknown[]) => logger.info(...args),
+  warn:  (...args: unknown[]) => logger.warn(...args),
+  error: (...args: unknown[]) => logger.error(...args),
+  fatal: (...args: unknown[]) => logger.error(...args),
+  child: () => baileysLogger,
+} as unknown as Parameters<typeof makeCacheableSignalKeyStore>[1];
+
 // Rate limiting — max 1 message per 2 seconds to avoid bans
 const MESSAGE_DELAY_MS = 2000;
 let lastMessageTime = 0;
@@ -39,6 +50,8 @@ export function createWhatsAppChannel(
   let sock: WASocket | null = null;
   let isConnected = false;
   let reconnectAttempts = 0;
+  let reconnectPending = false;
+  let connectedAt = 0;
 
   async function connect(): Promise<void> {
     mkdirSync(AUTH_DIR, { recursive: true });
@@ -48,11 +61,18 @@ export function createWhatsAppChannel(
 
     logger.info(`Using Baileys version ${version.join('.')}`);
 
+    // Close any existing socket before creating a new one to avoid conflict loops
+    if (sock) {
+      sock.ev.removeAllListeners('connection.update');
+      sock.ws.close();
+      sock = null;
+    }
+
     sock = makeWASocket({
       version,
       auth: {
         creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, logger as unknown as Parameters<typeof makeCacheableSignalKeyStore>[1]),
+        keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
       },
       printQRInTerminal: false,
       syncFullHistory: false,
@@ -73,7 +93,12 @@ export function createWhatsAppChannel(
       if (connection === 'open') {
         logger.info('WhatsApp connected ✓');
         isConnected = true;
-        reconnectAttempts = 0;
+        reconnectPending = false;
+        connectedAt = Date.now();
+        // Reset backoff after 30s of stability (scheduled check)
+        setTimeout(() => {
+          if (isConnected && Date.now() - connectedAt >= 30_000) reconnectAttempts = 0;
+        }, 30_000);
       }
 
       if (connection === 'close') {
@@ -83,12 +108,13 @@ export function createWhatsAppChannel(
 
         logger.warn(`WhatsApp disconnected (code: ${statusCode}). Reconnect: ${shouldReconnect}`);
 
-        if (shouldReconnect) {
+        if (shouldReconnect && !reconnectPending) {
+          reconnectPending = true;
           const delay = Math.min(5000 * Math.pow(2, reconnectAttempts), 60000);
           reconnectAttempts++;
           logger.info(`Reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts})...`);
           setTimeout(() => connect().catch((err: unknown) => logger.error('Reconnect failed:', err)), delay);
-        } else {
+        } else if (!shouldReconnect) {
           logger.error('WhatsApp logged out. Delete auth directory and restart to re-authenticate.');
         }
       }
