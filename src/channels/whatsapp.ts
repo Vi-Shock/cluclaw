@@ -219,6 +219,24 @@ export function createWhatsAppChannel(
       }
     },
 
+    async sendFile(groupId: string, buffer: Buffer, filename: string, mimeType: string, caption?: string): Promise<void> {
+      if (!sock || !isConnected) {
+        logger.warn('WhatsApp not connected, cannot send file');
+        return;
+      }
+      await rateLimit();
+      try {
+        await sock.sendMessage(groupId, {
+          document: buffer,
+          fileName: filename,
+          mimetype: mimeType,
+          caption,
+        });
+      } catch (err) {
+        logger.error('Failed to send WhatsApp file:', err);
+      }
+    },
+
     async stop(): Promise<void> {
       logger.info('Stopping WhatsApp channel...');
       // Use end() not logout() — logout() revokes the session server-side,

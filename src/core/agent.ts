@@ -177,7 +177,7 @@ export class Agent {
     context: ReturnType<typeof createGroupContext>
   ): Promise<SkillResponse | null> {
     // Multi-word command check (e.g. "remove last")
-    const multiWordCommands = ['remove last', 'settle up', 'who owes what'];
+    const multiWordCommands = ['remove last', 'settle up', 'who owes what', 'deleted expenses'];
 
     for (const skill of this.skills.values()) {
       // Check multi-word commands first
@@ -230,13 +230,24 @@ export class Agent {
     response: SkillResponse,
     replyToId?: string
   ): Promise<void> {
-    if (!response.text) return;
-
     const channel = this.channels.get(platform);
     if (!channel) {
       logger.warn(`No channel found for platform "${platform}"`);
       return;
     }
+
+    // File attachment (Excel export etc.)
+    if (response.file) {
+      const { buffer, filename, mimeType, caption } = response.file;
+      try {
+        await channel.sendFile(groupId, buffer, filename, mimeType, caption);
+      } catch (err) {
+        logger.error('Failed to send file:', err);
+      }
+      return;
+    }
+
+    if (!response.text) return;
 
     try {
       if (replyToId) {

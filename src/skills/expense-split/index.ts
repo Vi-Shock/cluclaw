@@ -5,6 +5,9 @@ import {
   shouldParseAsExpense,
   looksLikeCorrection,
   looksLikeDetailsRequest,
+  looksLikeSplitsRequest,
+  looksLikeDeletedExpensesRequest,
+  looksLikeExportRequest,
   parseExpense,
   parseCorrection,
   fastParseCorrection,
@@ -15,6 +18,8 @@ import {
   getLastExpense,
   deleteExpense,
   getExpenses,
+  getDeletedExpenses,
+  getDeletedCount,
   calculateBalances,
   simplifyDebts,
   addSettlement,
@@ -35,6 +40,7 @@ import type { Expense } from './schemas.js';
 import {
   renderSplitsSummary,
   renderDetails,
+  renderDeletedExpenses,
   renderClarificationQuestion,
   renderCorrectionConfirmation,
   renderDeleteConfirmation,
@@ -49,6 +55,7 @@ import {
   renderDateChanged,
   renderExpenseHistory,
 } from './renderer.js';
+import { generateExpenseExcel } from '../../utils/exporter.js';
 import { getGroupDb } from '../../memory/store.js';
 
 const SKILL_NAME = 'expense-split';
@@ -200,7 +207,12 @@ const expenseSkill: Skill = {
     // Audio could be a voice note about an expense
     if (message.content.media?.type === 'audio') return true;
 
-    return shouldParseAsExpense(text) || looksLikeCorrection(text) || looksLikeDetailsRequest(text);
+    return shouldParseAsExpense(text)
+      || looksLikeCorrection(text)
+      || looksLikeDetailsRequest(text)
+      || looksLikeSplitsRequest(text)
+      || looksLikeDeletedExpensesRequest(text)
+      || looksLikeExportRequest(text);
   },
 
   // ─── Main Handler ─────────────────────────────────────────────────────────
@@ -209,14 +221,7 @@ const expenseSkill: Skill = {
     const db = getGroupDb(message.groupId);
     const text = message.content.text ?? message.content.media?.caption ?? '';
 
-    // 0. Details request ("expense details", "split details", "show me the expenses", etc.)
-    //    Requires an expense context word alongside "detail(s)" — bare "Details" alone stays silent.
-    if (looksLikeDetailsRequest(text)) {
-      const expenses = getExpenses(db, message.groupId);
-      return { text: renderDetails(expenses) };
-    }
-
-    // 1. Check for corrections first
+    // 1. Corrections take priority — "remove the cab" etc.
     if (looksLikeCorrection(text)) {
       // Try deterministic regex extraction first; fall back to LLM only if needed
       const fastResult = fastParseCorrection(text);
@@ -227,6 +232,7 @@ const expenseSkill: Skill = {
             const last = getLastExpense(db, message.groupId);
             if (last) {
               deleteExpense(db, last.id);
+              logExpenseEvent(db, last.id, message.groupId, message.sender.name, 'deleted', { description: last.description });
               return { text: renderDeleteConfirmation(last.description) };
             }
             return { text: '❌ No expense to remove.' };
@@ -237,6 +243,7 @@ const expenseSkill: Skill = {
             if (!result) return { text: '❌ Couldn\'t find that expense. Type `details` to see all.' };
             if ('ambiguous' in result) return { text: renderAmbiguous(result.ambiguous, db, message.groupId) };
             deleteExpense(db, result.expense.id);
+            logExpenseEvent(db, result.expense.id, message.groupId, message.sender.name, 'deleted', { description: result.expense.description, amount: result.expense.amount, payer: result.expense.payerName });
             return { text: renderDeleteConfirmation(result.expense.description ?? null) };
           }
 
@@ -353,7 +360,42 @@ const expenseSkill: Skill = {
       }
     }
 
-    // 2. Fast-path settlement detection: "X paid Y amount" where Y is a known member
+    // 2. NL view requests — splits, expense list, deleted, export
+
+    if (looksLikeSplitsRequest(text)) {
+      const rawBalances = calculateBalances(db, message.groupId);
+      const simplified = simplifyDebts(rawBalances);
+      return { text: renderSplitsSummary(simplified) };
+    }
+
+    if (looksLikeDetailsRequest(text)) {
+      const expenses = getExpenses(db, message.groupId);
+      const deletedCount = getDeletedCount(db, message.groupId);
+      return { text: renderDetails(expenses, deletedCount) };
+    }
+
+    if (looksLikeDeletedExpensesRequest(text)) {
+      const deleted = getDeletedExpenses(db, message.groupId);
+      return { text: renderDeletedExpenses(deleted) };
+    }
+
+    if (looksLikeExportRequest(text)) {
+      const expenses = getExpenses(db, message.groupId, 1000);
+      const rawBalances = calculateBalances(db, message.groupId);
+      const debts = simplifyDebts(rawBalances);
+      const buffer = generateExpenseExcel(expenses, debts);
+      const filename = `expenses-${new Date().toISOString().split('T')[0]}.xlsx`;
+      return {
+        file: {
+          buffer,
+          filename,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          caption: `📊 Expenses export — ${expenses.length} expense${expenses.length !== 1 ? 's' : ''}`,
+        },
+      };
+    }
+
+    // 3. Fast-path settlement detection: "X paid Y amount" where Y is a known member
     const settlement = tryParseSettlement(text, message.sender.name, context.members);
     if (settlement) {
       const db2 = getGroupDb(message.groupId);
@@ -449,6 +491,7 @@ const expenseSkill: Skill = {
       const last = getLastExpense(db, context.groupId);
       if (!last) return { text: '❌ No expense to remove.' };
       deleteExpense(db, last.id);
+      logExpenseEvent(db, last.id, context.groupId, 'You', 'deleted', { description: last.description });
       return { text: renderDeleteConfirmation(last.description) };
     },
 
@@ -469,6 +512,7 @@ const expenseSkill: Skill = {
       const expense = getExpenseByPosition(db, context.groupId, position);
       if (!expense) return { text: `❌ No expense at position #${position}. Type \`details\` to see all.` };
       deleteExpense(db, expense.id);
+      logExpenseEvent(db, expense.id, context.groupId, 'You', 'deleted', { description: expense.description, amount: expense.amount, payer: expense.payerName });
       return { text: renderDeleteConfirmation(expense.description ?? null) };
     },
 
@@ -632,6 +676,29 @@ const expenseSkill: Skill = {
 
       return {
         text: `✅ Recorded: ${fromMember.displayName} paid *${toMember.displayName}* ₹${amount}`,
+      };
+    },
+
+    'deleted expenses': async (_args: string, context: GroupContext): Promise<SkillResponse | null> => {
+      const db = getGroupDb(context.groupId);
+      const deleted = getDeletedExpenses(db, context.groupId);
+      return { text: renderDeletedExpenses(deleted) };
+    },
+
+    export: async (_args: string, context: GroupContext): Promise<SkillResponse | null> => {
+      const db = getGroupDb(context.groupId);
+      const expenses = getExpenses(db, context.groupId, 1000);
+      const rawBalances = calculateBalances(db, context.groupId);
+      const debts = simplifyDebts(rawBalances);
+      const buffer = generateExpenseExcel(expenses, debts);
+      const filename = `expenses-${new Date().toISOString().split('T')[0]}.xlsx`;
+      return {
+        file: {
+          buffer,
+          filename,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          caption: `📊 Expenses export — ${expenses.length} expense${expenses.length !== 1 ? 's' : ''}`,
+        },
       };
     },
   },

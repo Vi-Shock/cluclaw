@@ -19,13 +19,48 @@ export function shouldParseAsExpense(text: string): boolean {
   return EXPENSE_REGEX.test(text) && NUMBER_REGEX.test(text);
 }
 
-// Details-request detection — "detail(s)" + an expense context word
+// Details-request detection — "detail(s)" + expense context, OR show-verb + expenses noun
 const DETAILS_SIGNAL_REGEX = /\bdetails?\b/i;
 const DETAILS_CONTEXT_REGEX =
   /\b(?:expense|split|spent|paid|owe|owes|balance|settle|bill|trip|kharcha|kharch)\b/i;
+const EXPENSES_SHOW_VERB_REGEX =
+  /\b(?:show|list|give|tell|display|dikhao|batao|bata)\b/i;
+const EXPENSES_NOUN_REGEX =
+  /\b(?:expenses?|kharche|kharcha)\b/i;
 
 export function looksLikeDetailsRequest(text: string): boolean {
-  return DETAILS_SIGNAL_REGEX.test(text) && DETAILS_CONTEXT_REGEX.test(text);
+  if (DETAILS_SIGNAL_REGEX.test(text) && DETAILS_CONTEXT_REGEX.test(text)) return true;
+  // "show me all the expenses", "expenses dikhao", "list expenses"
+  if (EXPENSES_SHOW_VERB_REGEX.test(text) && EXPENSES_NOUN_REGEX.test(text)) return true;
+  return false;
+}
+
+// Splits/balances request — "show me the split", "who owes what", "hisab dikhao"
+const SPLITS_SHOW_VERB_REGEX = EXPENSES_SHOW_VERB_REGEX; // same set
+const SPLITS_NOUN_REGEX =
+  /\b(?:split|balance|owe|owing|settlement|hisab|barabar)\b/i;
+const SPLITS_INTERROGATIVE_REGEX =
+  /\bwho\s+owes?\b|\bhow\s+much\s+(?:do\s+we|does\s+\w+)\s+owe\b|\bkitna\s+(?:bacha|banta|dena)\b|\bkaun\s+kitna\b/i;
+
+export function looksLikeSplitsRequest(text: string): boolean {
+  if (SPLITS_INTERROGATIVE_REGEX.test(text)) return true;
+  return SPLITS_SHOW_VERB_REGEX.test(text) && SPLITS_NOUN_REGEX.test(text);
+}
+
+// Deleted expenses request — "deleted expenses", "show deleted", "what was deleted"
+const DELETED_REQUEST_REGEX =
+  /\b(?:deleted?|removed?|erased?)\s+(?:expenses?|entries|bills?)\b|\bshow\s+(?:me\s+)?deleted\b|\bwhat\s+(?:was|were|got)\s+deleted\b|\bdeleted\s+dikhao\b/i;
+
+export function looksLikeDeletedExpensesRequest(text: string): boolean {
+  return DELETED_REQUEST_REGEX.test(text);
+}
+
+// Export request — "export", "download", "send me the excel/file/spreadsheet"
+const EXPORT_REQUEST_REGEX =
+  /\bexport\b|\bdownload\s+(?:the\s+)?(?:expenses?|data|file|excel|report)\b|\bsend\s+(?:me\s+)?(?:the\s+)?(?:file|excel|csv|spreadsheet|report)\b|\bgenerate\s+(?:excel|report|file)\b/i;
+
+export function looksLikeExportRequest(text: string): boolean {
+  return EXPORT_REQUEST_REGEX.test(text);
 }
 
 // Correction signals

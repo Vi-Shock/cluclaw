@@ -1,4 +1,4 @@
-import { Bot, type Context } from 'grammy';
+import { Bot, InputFile, type Context } from 'grammy';
 import { config } from '../core/config.js';
 import { logger } from '../core/logger.js';
 import { normalizeTelegramMessage } from '../core/message-bus.js';
@@ -128,6 +128,14 @@ export function createTelegramChannel(
         await bot.api.sendMessage(Number(groupId), text).catch((e: unknown) =>
           logger.error('Failed to send Telegram reply:', e)
         );
+      }
+    },
+
+    async sendFile(groupId: string, buffer: Buffer, filename: string, _mimeType: string, caption?: string): Promise<void> {
+      try {
+        await bot.api.sendDocument(Number(groupId), new InputFile(buffer, filename), { caption });
+      } catch (err) {
+        logger.error('Failed to send Telegram file:', err);
       }
     },
 

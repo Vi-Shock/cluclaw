@@ -244,6 +244,69 @@ export function getExpenses(
   return rows.map((row) => rowToExpense(db, row, editedIds));
 }
 
+// ─── Deleted Expenses ─────────────────────────────────────────────────────────
+
+export interface DeletedExpense {
+  id: string;
+  description: string | null;
+  category: string | null;
+  amount: number;
+  currency: string;
+  payerName: string;
+  expenseDate: Date;
+  deletedAt: Date;
+  deletedBy: string | null;
+}
+
+export function getDeletedExpenses(
+  db: Database.Database,
+  groupId: string,
+  limit = 50
+): DeletedExpense[] {
+  const rows = db.prepare(`
+    SELECT e.id, e.description, e.category, e.amount, e.currency,
+           m.display_name AS payer_name, e.expense_date, e.deleted_at,
+           ev.actor_name AS deleted_by
+    FROM expenses e
+    JOIN members m ON m.id = e.payer_id
+    LEFT JOIN expense_events ev
+      ON ev.expense_id = e.id AND ev.event_type = 'deleted'
+    WHERE e.deleted_at IS NOT NULL AND e.group_id = ?
+    ORDER BY e.deleted_at DESC
+    LIMIT ?
+  `).all(groupId, limit) as Array<{
+    id: string;
+    description: string | null;
+    category: string | null;
+    amount: number;
+    currency: string;
+    payer_name: string;
+    expense_date: string | null;
+    deleted_at: string;
+    deleted_by: string | null;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    description: r.description,
+    category: r.category,
+    amount: r.amount,
+    currency: r.currency,
+    payerName: r.payer_name,
+    expenseDate: new Date(r.expense_date ?? r.deleted_at),
+    deletedAt: new Date(r.deleted_at),
+    deletedBy: r.deleted_by,
+  }));
+}
+
+export function getDeletedCount(db: Database.Database, groupId: string): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS cnt FROM expenses
+    WHERE group_id = ? AND deleted_at IS NOT NULL
+  `).get(groupId) as { cnt: number };
+  return row.cnt;
+}
+
 export function addSettlement(
   db: Database.Database,
   groupId: string,

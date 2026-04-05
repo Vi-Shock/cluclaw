@@ -1,4 +1,5 @@
 import type { Balance, Expense, ExpenseEvent } from './schemas.js';
+import type { DeletedExpense } from './ledger.js';
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   INR: '₹',
@@ -46,9 +47,12 @@ function fmtDate(date: Date): string {
   return year !== now.getFullYear() ? `${day} ${month} ${year}` : `${day} ${month}`;
 }
 
-export function renderDetails(expenses: Expense[]): string {
+export function renderDetails(expenses: Expense[], deletedCount = 0): string {
   if (expenses.length === 0) {
-    return '📋 No expenses recorded yet.';
+    const deletedHint = deletedCount > 0
+      ? `\n\n🗑 ${deletedCount} deleted expense${deletedCount > 1 ? 's' : ''} — type \`deleted expenses\` to see them`
+      : '';
+    return `📋 No expenses recorded yet.${deletedHint}`;
   }
 
   const total = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -71,7 +75,27 @@ export function renderDetails(expenses: Expense[]): string {
   });
 
   const hint = `\n_edit #N split/add/remove/amount/payer/date/description — remove #N — history #N_`;
-  return `📋 *All Expenses* (${expenses.length} total)\n\n${lines.join('\n\n')}\n\n*Total: ${fmt(total, currency)}*${hint}`;
+  const deletedLine = deletedCount > 0
+    ? `\n\n🗑 ${deletedCount} deleted expense${deletedCount > 1 ? 's' : ''} — type \`deleted expenses\` to see them`
+    : '';
+  return `📋 *All Expenses* (${expenses.length} total)\n\n${lines.join('\n\n')}\n\n*Total: ${fmt(total, currency)}*${hint}${deletedLine}`;
+}
+
+// ─── Deleted Expenses List ────────────────────────────────────────────────────
+
+export function renderDeletedExpenses(expenses: DeletedExpense[]): string {
+  if (expenses.length === 0) {
+    return '🗑 No deleted expenses found.';
+  }
+
+  const lines = expenses.map((e) => {
+    const desc = e.description ?? e.category ?? 'expense';
+    const deletedDate = fmtDate(e.deletedAt);
+    const deletedBy = e.deletedBy ? ` by ${e.deletedBy}` : '';
+    return `${e.payerName} paid *${fmt(e.amount, e.currency)}* for ${desc} • ${fmtDate(e.expenseDate)}\n   → deleted${deletedBy} on ${deletedDate}`;
+  });
+
+  return `🗑 *Deleted Expenses* (${expenses.length})\n\n${lines.join('\n\n')}`;
 }
 
 // ─── Expense Confirmation ─────────────────────────────────────────────────────
