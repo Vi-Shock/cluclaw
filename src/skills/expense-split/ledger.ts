@@ -305,6 +305,27 @@ export function findExpensesByDescription(
 }
 
 /**
+ * Returns expenses whose amount matches the given value (exact or within ±1 for float rounding).
+ */
+export function findExpensesByAmount(
+  db: Database.Database,
+  groupId: string,
+  amount: number
+): Expense[] {
+  const rows = db.prepare(`
+    SELECT e.*, m.display_name AS payer_name
+    FROM expenses e
+    JOIN members m ON e.payer_id = m.id
+    WHERE e.group_id = ? AND e.deleted_at IS NULL
+      AND ABS(e.amount - ?) < 0.01
+    ORDER BY e.created_at DESC
+  `).all(groupId, amount) as ExpenseRowFull[];
+
+  const editedIds = getEditedIds(db, groupId);
+  return rows.map((row) => rowToExpense(db, row, editedIds));
+}
+
+/**
  * Replaces the split members for an expense.
  * Pass splitAmounts (memberId → amount/percentage) for unequal splits.
  */

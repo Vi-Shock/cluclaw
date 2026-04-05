@@ -20,6 +20,7 @@ import {
   updateExpenseAmount,
   getExpenseByPosition,
   findExpensesByDescription,
+  findExpensesByAmount,
   updateExpenseSplit,
   updateExpensePayer,
   removePersonFromSplit,
@@ -70,14 +71,19 @@ function resolveExpenseTarget(
   }
 
   if (description) {
-    const matches = findExpensesByDescription(db, groupId, description);
-    if (matches.length === 0) return null;
-    if (matches.length === 1) {
+    // If description is a pure number, treat it as an amount search
+    const asAmount = parseFloat(description);
+    const candidates = !isNaN(asAmount) && /^\d+(\.\d+)?$/.test(description.trim())
+      ? findExpensesByAmount(db, groupId, asAmount)
+      : findExpensesByDescription(db, groupId, description);
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) {
       const all = getExpenses(db, groupId, 100);
-      const pos = all.findIndex((e) => e.id === matches[0].id) + 1;
-      return { expense: matches[0], position: pos > 0 ? pos : 1 };
+      const pos = all.findIndex((e) => e.id === candidates[0].id) + 1;
+      return { expense: candidates[0], position: pos > 0 ? pos : 1 };
     }
-    return { ambiguous: matches };
+    return { ambiguous: candidates };
   }
 
   // Fall back to most recent expense (getExpenses returns DESC, so [0] = newest = #1)

@@ -74,17 +74,36 @@ export function fastParseCorrection(text: string): Partial<CorrectionRequest> | 
     return { is_correction: true, correction_type: 'remove_person', remove_person, expense_description, expense_position, confidence: 0.85 };
   }
 
-  // "delete/remove [the] <desc> [expense/bill/entry]" or "delete #N"
-  // Must NOT match "remove X from Y" (handled above) or "remove last" (separate command)
-  const deleteExp = /^(?:delete|remove)\s+(?:the\s+)?(.+?)(?:\s+(?:expense|bill|entry|split))?[.!?]*$/i.exec(text.trim());
-  if (deleteExp && !/\bfrom\b/i.test(text) && !/\blast\b/i.test(text)) {
-    const target = deleteExp[1].trim();
+  // "delete/remove [the/my] <target> [expense/bill/entry/split]" or "delete #N"
+  // Must NOT match "remove X from Y" (handled above)
+  const deleteExp = /^(?:delete|remove)\s+(?:(?:the|my|this|that|an?)\s+)*(.+?)(?:\s+(?:expense|bill|entry|split|transaction))?[.!?]*$/i.exec(text.trim());
+  if (deleteExp && !/\bfrom\b/i.test(text)) {
+    const target = deleteExp[1].trim().toLowerCase();
+
+    // #N position
     const posMatch = /^#?(\d+)$/.exec(target);
     if (posMatch) {
       return { is_correction: true, correction_type: 'delete_expense', expense_position: parseInt(posMatch[1], 10), confidence: 0.95 };
     }
-    const expense_description = expense_position ? undefined : (STOPWORDS.has(target.toLowerCase()) ? undefined : target);
-    return { is_correction: true, correction_type: 'delete_expense', expense_description, expense_position, confidence: 0.9 };
+
+    // "delete my recent/latest/last/recent expense" → remove_last
+    if (/^(?:recent|latest|last|most recent|newest|new)$/.test(target)) {
+      return { is_correction: true, correction_type: 'remove_last', confidence: 0.9 };
+    }
+
+    // Single word or pure number description — safe to extract deterministically
+    const singleWord = /^([a-zA-Z]\w*)$/.exec(target);      // e.g. "hotel", "cab"
+    const pureAmount = /^(\d+(?:\.\d+)?)$/.exec(target);    // e.g. "500"
+    if (singleWord && !STOPWORDS.has(target)) {
+      return { is_correction: true, correction_type: 'delete_expense', expense_description: target, expense_position, confidence: 0.9 };
+    }
+    if (pureAmount) {
+      // Store the amount as description string; resolveExpenseTarget handles numeric lookup
+      return { is_correction: true, correction_type: 'delete_expense', expense_description: target, expense_position, confidence: 0.9 };
+    }
+
+    // Complex phrase ("expense I paid 500", "hotel from yesterday") — let LLM handle
+    return null;
   }
 
   return null;
@@ -232,6 +251,10 @@ Examples:
 - "delete the hotel expense" → correction_type=delete_expense, expense_description="hotel"
 - "remove the cab" → correction_type=delete_expense, expense_description="cab"
 - "delete #2" → correction_type=delete_expense, expense_position=2
+- "delete the 500 expense" → correction_type=delete_expense, expense_description="500"
+- "delete the expense I paid 500" → correction_type=delete_expense, expense_description="500"
+- "delete my recent expense" → correction_type=remove_last
+- "delete my last expense" → correction_type=remove_last
 
 IMPORTANT: Use add_person (not change_split) when someone is being ADDED to an existing split.
 Use change_split only when the entire split list is being replaced.
